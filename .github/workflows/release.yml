@@ -1,0 +1,80 @@
+name: Build & Release SmartBrowser
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:        # also allow manual trigger from the Actions tab
+
+permissions:
+  contents: write           # needed to create the GitHub Release
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_glob: 'dist_electron/*.exe'
+          - os: macos-latest
+            artifact_glob: 'dist_electron/*.dmg'
+          - os: ubuntu-latest
+            artifact_glob: 'dist_electron/*.AppImage'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root deps (auto-fetches Tor for this platform)
+        # postinstall in package.json runs scripts/fetch-tor.js + child installs
+        run: npm install
+
+      - name: Build frontend
+        run: npm run build:frontend
+
+      - name: Package installer
+        env:
+          # electron-builder uses GH_TOKEN to publish; we'll publish in the
+          # release job instead, so only package locally here.
+          ELECTRON_BUILDER_OUTPUT: dist_electron
+        run: npx electron-builder --publish never
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartbrowser-${{ matrix.os }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: SmartBrowser ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.dmg
+            artifacts/**/*.AppImage
+          fail_on_unmatched_files: false

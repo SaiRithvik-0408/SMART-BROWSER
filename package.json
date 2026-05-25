@@ -24,6 +24,9 @@
   "build": {
     "appId": "com.smartbrowser.app",
     "productName": "SmartBrowser",
+    "directories": {
+      "output": "dist_electron"
+    },
     "files": [
       "electron/**",
       "backend-node/**",
