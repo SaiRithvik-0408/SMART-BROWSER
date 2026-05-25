@@ -52,13 +52,10 @@ jobs:
 
       - name: Package installer
         env:
-          ELECTRON_BUILDER_OUTPUT: dist_electron
-          # No code-signing cert available in CI; tell electron-builder to
-          # not try (and to skip the macOS code-sign tooling extraction that
-          # otherwise tries to create symlinks and dies on Windows runners).
+          # No code-signing cert in CI. The package.json `win.signAndEditExecutable: false`
+          # already disables Windows signing; this just stops electron-builder from
+          # walking the keychain on macOS too.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          WIN_CSC_LINK: ''
-          WIN_CSC_KEY_PASSWORD: ''
         run: npx electron-builder --publish never
 
       - name: Upload installer artifact

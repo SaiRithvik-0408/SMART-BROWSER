@@ -49,7 +49,17 @@
         ]
       }
     ],
-    "win": { "target": "nsis" },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "signAndEditExecutable": false,
+      "signtoolOptions": { "sign": null }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
     "mac": { "target": "dmg" },
     "linux": { "target": "AppImage" }
   }
