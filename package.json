@@ -51,8 +51,7 @@
     ],
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }],
-      "signAndEditExecutable": false,
-      "signtoolOptions": { "sign": null }
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
