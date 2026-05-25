@@ -34,17 +34,24 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install root deps (auto-fetches Tor for this platform)
-        # postinstall in package.json runs scripts/fetch-tor.js + child installs
-        run: npm install
+      # Install the three workspaces explicitly. The root `npm install`
+      # still runs its postinstall (now just `node scripts/fetch-tor.js`,
+      # NOT recursive child installs - that dead-locks on Windows because
+      # the outer npm holds locks on node_modules/.staging).
+      - name: Install root deps (+ auto-fetches Tor for this platform)
+        run: npm install --no-audit --no-fund
+
+      - name: Install backend-node deps
+        run: npm install --no-audit --no-fund --prefix backend-node
+
+      - name: Install frontend deps
+        run: npm install --no-audit --no-fund --prefix frontend
 
       - name: Build frontend
         run: npm run build:frontend
 
       - name: Package installer
         env:
-          # electron-builder uses GH_TOKEN to publish; we'll publish in the
-          # release job instead, so only package locally here.
           ELECTRON_BUILDER_OUTPUT: dist_electron
         run: npx electron-builder --publish never
 

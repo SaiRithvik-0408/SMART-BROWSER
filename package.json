@@ -4,8 +4,10 @@
   "description": "SmartBrowser — privacy-first desktop browser with built-in VPN, IP masking, and URL/website masking.",
   "main": "electron/main.js",
   "scripts": {
-    "postinstall": "node scripts/fetch-tor.js && npm install --prefix backend-node && npm install --prefix frontend",
+    "postinstall": "node scripts/fetch-tor.js",
     "setup:tor": "node scripts/fetch-tor.js",
+    "setup:deps": "npm install --no-audit --no-fund --prefix backend-node && npm install --no-audit --no-fund --prefix frontend",
+    "setup": "node scripts/fetch-tor.js && npm run setup:deps",
     "start": "cross-env NODE_ENV=development electron .",
     "dev": "concurrently -k -n backend,frontend,electron -c blue,magenta,green \"npm start --prefix backend-node\" \"npm run dev --prefix frontend\" \"wait-on tcp:5173 tcp:8080 && cross-env NODE_ENV=development electron .\"",
     "build:frontend": "npm run build --prefix frontend",
