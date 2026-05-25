@@ -1,0 +1,10 @@
+# SmartBrowser - default Tor: random exit anywhere
+DataDirectory data-anywhere
+SocksPort 127.0.0.1:9050
+ClientUseIPv4 1
+ClientUseIPv6 1
+GeoIPFile ../data/geoip
+GeoIPv6File ../data/geoip6
+Log notice stdout
+ClientOnly 1
+AvoidDiskWrites 1

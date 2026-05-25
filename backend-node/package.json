@@ -1,0 +1,17 @@
+{
+  "name": "smart-browser-backend-node",
+  "version": "1.0.0",
+  "description": "Drop-in Node.js implementation of the SmartBrowser backend (same API as the Spring Boot version).",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "socks-proxy-agent": "^8.0.4",
+    "https-proxy-agent": "^7.0.5"
+  }
+}

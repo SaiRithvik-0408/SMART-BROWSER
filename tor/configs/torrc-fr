@@ -1,0 +1,10 @@
+# SmartBrowser - Tor exit restricted to France
+DataDirectory data-fr
+SocksPort 127.0.0.1:9054
+GeoIPFile ../data/geoip
+GeoIPv6File ../data/geoip6
+ExitNodes {fr}
+StrictNodes 1
+Log notice stdout
+ClientOnly 1
+AvoidDiskWrites 1

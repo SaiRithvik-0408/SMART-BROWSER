@@ -1,0 +1,10 @@
+# SmartBrowser - Tor exit restricted to United States
+DataDirectory data-us
+SocksPort 127.0.0.1:9051
+GeoIPFile ../data/geoip
+GeoIPv6File ../data/geoip6
+ExitNodes {us}
+StrictNodes 1
+Log notice stdout
+ClientOnly 1
+AvoidDiskWrites 1

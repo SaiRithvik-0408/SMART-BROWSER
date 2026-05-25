@@ -1,0 +1,10 @@
+# SmartBrowser - Tor exit restricted to Netherlands (huge exit-node count, very fast)
+DataDirectory data-nl
+SocksPort 127.0.0.1:9053
+GeoIPFile ../data/geoip
+GeoIPv6File ../data/geoip6
+ExitNodes {nl}
+StrictNodes 1
+Log notice stdout
+ClientOnly 1
+AvoidDiskWrites 1

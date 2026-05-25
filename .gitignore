@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+build/
+frontend/dist/
+dist_electron/
+
+# Editor / OS
+**/.DS_Store
+.vscode/
+.idea/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Bundled Tor (auto-downloaded by scripts/fetch-tor.js on `npm install`)
+tor/tor/
+tor/data/geoip
+tor/data/geoip6
+tor/data-*/
+tor/configs/data-*/
+tor/tor-bundle.tar.gz
+
+# Electron-builder artifacts
+*.exe
+*.dmg
+*.AppImage
+*.snap
+*.deb
+*.rpm

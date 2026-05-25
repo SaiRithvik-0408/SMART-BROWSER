@@ -1,0 +1,43 @@
+{
+  "name": "smart-browser",
+  "version": "1.0.0",
+  "description": "SmartBrowser — privacy-first desktop browser with built-in VPN, IP masking, and URL/website masking.",
+  "main": "electron/main.js",
+  "scripts": {
+    "postinstall": "node scripts/fetch-tor.js && npm install --prefix backend-node && npm install --prefix frontend",
+    "setup:tor": "node scripts/fetch-tor.js",
+    "start": "cross-env NODE_ENV=development electron .",
+    "dev": "concurrently -k -n backend,frontend,electron -c blue,magenta,green \"npm start --prefix backend-node\" \"npm run dev --prefix frontend\" \"wait-on tcp:5173 tcp:8080 && cross-env NODE_ENV=development electron .\"",
+    "build:frontend": "npm run build --prefix frontend",
+    "package": "npm run build:frontend && electron-builder",
+    "package:dir": "npm run build:frontend && electron-builder --dir"
+  },
+  "author": "SmartBrowser",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^31.4.0",
+    "electron-builder": "^24.13.3",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.smartbrowser.app",
+    "productName": "SmartBrowser",
+    "files": [
+      "electron/**",
+      "backend-node/**",
+      "frontend/dist/**",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+    ],
+    "extraResources": [
+      { "from": "backend-node", "to": "backend-node",
+        "filter": ["**/*", "!node_modules/.cache/**"] },
+      { "from": "tor", "to": "tor",
+        "filter": ["tor/**", "data/geoip", "data/geoip6", "configs/**", "!data-*/**", "!*.tar.gz"] }
+    ],
+    "win": { "target": "nsis" },
+    "mac": { "target": "dmg" },
+    "linux": { "target": "AppImage" }
+  }
+}
