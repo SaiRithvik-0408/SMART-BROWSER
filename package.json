@@ -37,7 +37,15 @@
       { "from": "backend-node", "to": "backend-node",
         "filter": ["**/*", "!node_modules/.cache/**"] },
       { "from": "tor", "to": "tor",
-        "filter": ["tor/**", "data/geoip", "data/geoip6", "configs/**", "!data-*/**", "!*.tar.gz"] }
+        "filter": [
+          "tor/tor.exe", "tor/tor",
+          "data/geoip", "data/geoip6",
+          "configs/torrc-*",
+          "!**/data-*/**",
+          "!**/pluggable_transports/**",
+          "!**/*.tar.gz"
+        ]
+      }
     ],
     "win": { "target": "nsis" },
     "mac": { "target": "dmg" },

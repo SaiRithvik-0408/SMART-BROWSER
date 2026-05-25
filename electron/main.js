@@ -25,8 +25,12 @@ const torProcs = new Map();
 const TOR_DIR    = app.isPackaged
   ? path.join(process.resourcesPath, 'tor')
   : path.join(__dirname, '..', 'tor');
-const TOR_BIN    = path.join(TOR_DIR, 'tor', 'tor.exe');
+const TOR_BIN    = path.join(TOR_DIR, 'tor', process.platform === 'win32' ? 'tor.exe' : 'tor');
 const TOR_CFGDIR = path.join(TOR_DIR, 'configs');
+// Tor must be able to write its cached consensus + microdescriptors. In a
+// packaged install resources/ is read-only, so park per-instance DataDirectory
+// under app.getPath('userData').
+const TOR_DATAROOT = path.join(app.getPath('userData'), 'tor-data');
 
 const TOR_INSTANCES = [
   { id: 'tor-any', cfg: 'torrc-anywhere', port: 9050, label: 'Tor - Anywhere (random exit)' },
@@ -38,17 +42,31 @@ const TOR_INSTANCES = [
 
 function startTor() {
   if (!fs.existsSync(TOR_BIN)) {
-    console.warn(`[tor] tor.exe not found at ${TOR_BIN} - VPN servers will report 'unreachable'`);
+    console.warn(`[tor] tor binary not found at ${TOR_BIN} - VPN servers will report 'unreachable'`);
     return;
   }
+  fs.mkdirSync(TOR_DATAROOT, { recursive: true });
   for (const inst of TOR_INSTANCES) {
     const cfgPath = path.join(TOR_CFGDIR, inst.cfg);
     if (!fs.existsSync(cfgPath)) {
       console.warn(`[tor] missing config ${cfgPath} - skipping ${inst.id}`);
       continue;
     }
-    console.log(`[tor] spawning ${inst.id} on 127.0.0.1:${inst.port} (cfg: ${inst.cfg})`);
-    const proc = spawn(TOR_BIN, ['-f', cfgPath], {
+    const dataDir = path.join(TOR_DATAROOT, inst.id);
+    fs.mkdirSync(dataDir, { recursive: true });
+    const geoip  = path.join(TOR_DIR, 'data', 'geoip');
+    const geoip6 = path.join(TOR_DIR, 'data', 'geoip6');
+
+    console.log(`[tor] spawning ${inst.id} on 127.0.0.1:${inst.port} (cfg: ${inst.cfg}, data: ${dataDir})`);
+    // Override torrc DataDirectory + GeoIP paths via CLI so the same config
+    // file works in dev and in a packaged install.
+    const args = [
+      '-f', cfgPath,
+      '--DataDirectory', dataDir,
+      '--GeoIPFile',     geoip,
+      '--GeoIPv6File',   geoip6,
+    ];
+    const proc = spawn(TOR_BIN, args, {
       cwd: TOR_CFGDIR,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
