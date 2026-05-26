@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>SmartBrowser — Privacy-first browser with built-in Tor VPN</title>
+<meta name="description" content="Download SmartBrowser: a desktop browser with built-in multi-region Tor VPN, IP masking, and URL masking. Free, open source, no telemetry." />
+<meta name="theme-color" content="#0a0a14" />
+
+<meta property="og:title" content="SmartBrowser — Privacy-first browser with built-in Tor VPN" />
+<meta property="og:description" content="Built-in multi-region Tor VPN, IP masking, and URL masking. Free, open source." />
+<meta property="og:type" content="website" />
+
+<link rel="preconnect" href="https://api.github.com" />
+<link rel="preconnect" href="https://github.com" />
+
+<style>
+  :root {
+    --bg: #07070d;
+    --bg-2: #0d0d1a;
+    --fg: #e9ecf5;
+    --fg-dim: #9aa0b4;
+    --accent: #8b5cf6;
+    --accent-2: #06b6d4;
+    --card: rgba(255, 255, 255, 0.04);
+    --card-hover: rgba(255, 255, 255, 0.07);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --shadow: 0 18px 60px -20px rgba(139, 92, 246, 0.35);
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; cursor: pointer; }
+
+  /* Three.js canvas pinned behind everything */
+  #bg-canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    background:
+      radial-gradient(80% 50% at 50% 0%, rgba(139,92,246,0.18), transparent 60%),
+      radial-gradient(60% 40% at 80% 80%, rgba(6,182,212,0.12), transparent 60%),
+      var(--bg);
+  }
+
+  /* layout */
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    background: rgba(7,7,13,0.55);
+    border-bottom: 1px solid var(--border);
+  }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: 0.2px; }
+  .brand-mark {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: conic-gradient(from 140deg, var(--accent), var(--accent-2), var(--accent));
+    box-shadow: 0 0 24px -4px var(--accent);
+    display: grid; place-items: center;
+    color: #07070d; font-weight: 800; font-size: 14px;
+  }
+  nav a.ghlink {
+    color: var(--fg-dim); font-size: 14px; padding: 8px 12px; border-radius: 10px;
+    border: 1px solid var(--border); transition: all 0.15s ease;
+  }
+  nav a.ghlink:hover { color: var(--fg); border-color: var(--border-strong); background: var(--card); }
+
+  /* hero */
+  header.hero { padding: 80px 0 40px; text-align: center; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--fg-dim); font-size: 12px; letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .pill .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #22c55e; box-shadow: 0 0 10px #22c55e;
+  }
+  h1.hero-title {
+    font-size: clamp(40px, 6vw, 72px);
+    margin: 20px 0 12px;
+    font-weight: 700; letter-spacing: -0.02em;
+    background: linear-gradient(180deg, #fff 0%, #c7c7d4 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero-sub {
+    max-width: 640px; margin: 0 auto 36px;
+    color: var(--fg-dim); font-size: clamp(16px, 1.6vw, 19px);
+  }
+  .accent { color: var(--accent); }
+
+  /* primary download */
+  .primary-cta { display: inline-flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 8px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 14px 26px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    color: white; font-weight: 600; font-size: 16px;
+    border: none; cursor: pointer;
+    box-shadow: var(--shadow);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  }
+  .btn:hover { transform: translateY(-1px); filter: brightness(1.08); }
+  .btn:active { transform: translateY(0); }
+  .btn-ghost {
+    background: var(--card); color: var(--fg);
+    border: 1px solid var(--border-strong); box-shadow: none;
+  }
+  .btn-ghost:hover { background: var(--card-hover); filter: none; }
+  .btn .icon { width: 18px; height: 18px; }
+  .meta { color: var(--fg-dim); font-size: 13px; }
+
+  /* downloads grid */
+  section { padding: 60px 0; }
+  .section-title {
+    font-size: 14px; letter-spacing: 0.6px; text-transform: uppercase;
+    color: var(--fg-dim); margin: 0 0 6px;
+  }
+  .section-heading { font-size: 32px; font-weight: 700; margin: 0 0 28px; letter-spacing: -0.01em; }
+
+  .downloads { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 800px) { .downloads { grid-template-columns: 1fr; } }
+
+  .platform {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px 24px;
+    display: flex; flex-direction: column; gap: 16px;
+    transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+    position: relative; overflow: hidden;
+  }
+  .platform:hover { background: var(--card-hover); border-color: var(--border-strong); transform: translateY(-2px); }
+  .platform.recommended {
+    border-color: rgba(139,92,246,0.55);
+    box-shadow: 0 0 0 1px rgba(139,92,246,0.25), 0 18px 60px -25px rgba(139,92,246,0.5);
+  }
+  .platform.recommended::after {
+    content: "Recommended for your system";
+    position: absolute; top: 12px; right: 12px;
+    font-size: 11px; letter-spacing: 0.3px; text-transform: uppercase;
+    padding: 4px 8px; border-radius: 6px;
+    background: rgba(139,92,246,0.18); color: #d6c7ff; border: 1px solid rgba(139,92,246,0.35);
+  }
+  .platform .os-icon {
+    width: 36px; height: 36px; color: var(--fg);
+  }
+  .platform h3 { margin: 0; font-size: 19px; font-weight: 600; }
+  .platform .filename { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--fg-dim); word-break: break-all; }
+  .platform .runline { color: var(--fg-dim); font-size: 13px; }
+  .platform .actions { margin-top: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* features */
+  .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 800px) { .features { grid-template-columns: 1fr; } }
+  .feature {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px;
+  }
+  .feature h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+  .feature p { margin: 0; color: var(--fg-dim); font-size: 14px; }
+  .feature .ficon {
+    width: 32px; height: 32px; color: var(--accent); margin-bottom: 14px;
+  }
+
+  /* footer */
+  footer {
+    padding: 40px 0 60px;
+    border-top: 1px solid var(--border);
+    color: var(--fg-dim);
+    font-size: 13px;
+  }
+  footer .wrap { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  footer a { color: var(--fg); border-bottom: 1px dotted var(--border-strong); }
+
+  /* loading / error states */
+  .status {
+    text-align: center; padding: 28px;
+    background: var(--card); border: 1px dashed var(--border); border-radius: var(--radius);
+    color: var(--fg-dim);
+  }
+  .skeleton { background: linear-gradient(90deg, var(--card), var(--card-hover), var(--card)); background-size: 200% 100%; animation: sk 1.4s infinite; border-radius: 6px; height: 14px; }
+  @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* small utilities */
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas" aria-hidden="true"></canvas>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#">
+      <div class="brand-mark">S</div>
+      <span>SmartBrowser</span>
+    </a>
+    <a class="ghlink" href="https://github.com/SaiRithvik-0408/SMART-BROWSER" target="_blank" rel="noopener">
+      View on GitHub →
+    </a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="pill"><span class="dot"></span><span id="latest-pill">Loading latest release…</span></span>
+    <h1 class="hero-title">Privacy-first browser with<br/><span class="accent">built-in Tor VPN</span></h1>
+    <p class="hero-sub">SmartBrowser routes traffic through a bundled multi-region Tor network, masks your IP, and rewrites URLs so every site looks like it came from <code>smartbrowser</code>. Free. Open source. No telemetry.</p>
+
+    <div class="primary-cta">
+      <a id="primary-download" class="btn" href="https://github.com/SaiRithvik-0408/SMART-BROWSER/releases/latest" rel="noopener">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m6 9 6 6 6-6"/><path d="M5 21h14"/></svg>
+        <span id="primary-download-label">Download SmartBrowser</span>
+      </a>
+      <span id="primary-meta" class="meta">Detecting your platform…</span>
+    </div>
+  </div>
+</header>
+
+<section id="downloads">
+  <div class="wrap">
+    <p class="section-title">Downloads</p>
+    <h2 class="section-heading">Pick your operating system</h2>
+    <div id="downloads-grid" class="downloads">
+      <div class="status" style="grid-column: 1 / -1;">Fetching latest release from GitHub…</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="section-title">What you get</p>
+    <h2 class="section-heading">Privacy isn't an extension. It's the browser.</h2>
+    <div class="features">
+      <div class="feature">
+        <svg class="ficon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <h4>Built-in multi-region Tor</h4>
+        <p>Five preconfigured exit regions (Anywhere, US, Germany, Netherlands, France) shipped as part of the app. No accounts, no monthly fees.</p>
+      </div>
+      <div class="feature">
+        <svg class="ficon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        <h4>IP &amp; URL masking</h4>
+        <p>Outbound traffic carries the Tor exit's IP. Inbound URLs are rewritten through a reverse-proxy so the network only ever sees one origin.</p>
+      </div>
+      <div class="feature">
+        <svg class="ficon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <h4>Real Chromium DevTools, docked</h4>
+        <p>Right-click → Inspect opens DevTools on the right side, exactly like Chrome. You can also pop it out into its own window.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>© SmartBrowser · MIT licensed · <a href="https://github.com/SaiRithvik-0408/SMART-BROWSER" target="_blank" rel="noopener">Source on GitHub</a></div>
+    <div id="footer-version" class="meta">version —</div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script>
+/* ------------------------------------------------------------------
+ * SmartBrowser landing page
+ *  - Detects the user's OS and elevates the matching download card.
+ *  - Pulls the latest GitHub release at runtime, so every new tag is
+ *    instantly reflected here without redeploying the site.
+ *  - Three.js point cloud in the background for ambient motion.
+ * ------------------------------------------------------------------ */
+
+const REPO = "SaiRithvik-0408/SMART-BROWSER";
+
+const PLATFORMS = [
+  {
+    id: "windows",
+    name: "Windows",
+    arch: "x64",
+    matchOS: ua => /Windows/i.test(ua),
+    matchAsset: a => /win|windows/i.test(a.name) && /\.zip$/i.test(a.name),
+    icon: `<svg class="os-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.5 9.8 2.1v9.5H0Zm0 17 9.8 1.4v-9.5H0ZM10.9 21.7 24 23.5V12.6H10.9Zm0-19.7v9.6H24V.2Z"/></svg>`,
+    runline: "Unzip anywhere, then run <code>SmartBrowser.exe</code>"
+  },
+  {
+    id: "macos",
+    name: "macOS",
+    arch: "Apple Silicon",
+    matchOS: ua => /Mac/i.test(ua),
+    matchAsset: a => /\.dmg$/i.test(a.name),
+    icon: `<svg class="os-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 12.04c-.03-2.96 2.42-4.37 2.53-4.45-1.38-2.02-3.52-2.3-4.28-2.33-1.82-.19-3.55 1.07-4.48 1.07-.93 0-2.36-1.05-3.88-1.02-2 .03-3.84 1.16-4.87 2.95-2.08 3.6-.53 8.93 1.5 11.85 1 1.43 2.18 3.04 3.74 2.98 1.5-.06 2.07-.97 3.89-.97 1.81 0 2.32.97 3.91.94 1.61-.03 2.63-1.46 3.62-2.9 1.14-1.66 1.6-3.27 1.62-3.36-.04-.02-3.12-1.2-3.15-4.76zM14.16 3.44c.82-1.01 1.38-2.4 1.22-3.79-1.18.05-2.62.78-3.47 1.78-.76.88-1.43 2.3-1.25 3.66 1.32.1 2.67-.67 3.5-1.65z"/></svg>`,
+    runline: "Open the .dmg and drag SmartBrowser to Applications"
+  },
+  {
+    id: "linux",
+    name: "Linux",
+    arch: "AppImage",
+    matchOS: ua => /Linux|X11/i.test(ua),
+    matchAsset: a => /\.AppImage$/i.test(a.name),
+    icon: `<svg class="os-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-1.1 0-2 .9-2 2 0 .54.22 1.04.57 1.4-.32.35-.57.78-.57 1.27 0 .55.22 1.04.57 1.4-1.06 1.16-2.07 2.71-2.57 4.34a8 8 0 0 0-.5 2.7c-.04 1.12-.34 2.18-1.05 3.2-.5.71-.95 1.32-.95 2.04 0 .94.62 1.78 1.45 2.16.43.2 1.04.4 1.55.4 1.27 0 1.74-.62 3-.62 1.27 0 2.6.62 4 .62 1.43 0 2.42-.66 3.13-1.4.45-.47.87-1.07.87-1.66 0-.7-.36-1.31-.87-1.94-.6-.74-.88-1.65-.88-2.78a8 8 0 0 0-.5-2.7c-.5-1.63-1.51-3.18-2.57-4.34.35-.36.57-.85.57-1.4 0-.49-.25-.92-.57-1.27.35-.36.57-.86.57-1.4 0-1.1-.9-2-2-2zm-.5 4.5a.8.8 0 1 1 .8.8.8.8 0 0 1-.8-.8zm2 0a.8.8 0 1 1 .8.8.8.8 0 0 1-.8-.8z"/></svg>`,
+    runline: "<code>chmod +x SmartBrowser-*.AppImage</code> &amp; double-click"
+  }
+];
+
+function bytesToMB(b) { return (b / (1024 * 1024)).toFixed(1) + " MB"; }
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
+function detectOSPlatform() {
+  const ua = navigator.userAgent;
+  return PLATFORMS.find(p => p.matchOS(ua)) || null;
+}
+
+async function fetchLatestRelease() {
+  const url = `https://api.github.com/repos/${REPO}/releases/latest`;
+  const resp = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
+  if (!resp.ok) throw new Error(`GitHub API ${resp.status}`);
+  return resp.json();
+}
+
+function renderDownloads(release, detected) {
+  const grid = document.getElementById("downloads-grid");
+  const latestPill = document.getElementById("latest-pill");
+  const primaryBtn = document.getElementById("primary-download");
+  const primaryLabel = document.getElementById("primary-download-label");
+  const primaryMeta = document.getElementById("primary-meta");
+  const footerVer = document.getElementById("footer-version");
+
+  latestPill.textContent = `Latest: ${release.tag_name} · ${new Date(release.published_at).toLocaleDateString()}`;
+  footerVer.textContent = `version ${release.tag_name}`;
+
+  grid.innerHTML = "";
+
+  let primaryAsset = null;
+  let primaryPlatform = null;
+
+  PLATFORMS.forEach(p => {
+    const asset = (release.assets || []).find(p.matchAsset);
+    const isRecommended = detected && detected.id === p.id;
+
+    if (isRecommended && asset) {
+      primaryAsset = asset;
+      primaryPlatform = p;
+    }
+
+    const card = document.createElement("div");
+    card.className = "platform" + (isRecommended ? " recommended" : "");
+
+    if (asset) {
+      card.innerHTML = `
+        ${p.icon}
+        <div>
+          <h3>${escapeHtml(p.name)} <span class="meta">· ${escapeHtml(p.arch)}</span></h3>
+          <div class="filename">${escapeHtml(asset.name)}</div>
+        </div>
+        <div class="runline">${p.runline}</div>
+        <div class="actions">
+          <a class="btn" href="${asset.browser_download_url}" rel="noopener">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m6 9 6 6 6-6"/><path d="M5 21h14"/></svg>
+            Download · ${bytesToMB(asset.size)}
+          </a>
+        </div>
+      `;
+    } else {
+      card.innerHTML = `
+        ${p.icon}
+        <div>
+          <h3>${escapeHtml(p.name)} <span class="meta">· ${escapeHtml(p.arch)}</span></h3>
+          <div class="filename">Not available in ${escapeHtml(release.tag_name)}</div>
+        </div>
+        <div class="runline">${p.runline}</div>
+        <div class="actions">
+          <a class="btn btn-ghost" href="https://github.com/${REPO}/releases" rel="noopener">Browse all releases</a>
+        </div>
+      `;
+    }
+    grid.appendChild(card);
+  });
+
+  if (primaryAsset && primaryPlatform) {
+    primaryBtn.href = primaryAsset.browser_download_url;
+    primaryLabel.textContent = `Download for ${primaryPlatform.name}`;
+    primaryMeta.textContent = `${primaryAsset.name} · ${bytesToMB(primaryAsset.size)} · ${release.tag_name}`;
+  } else if (detected) {
+    primaryBtn.href = `https://github.com/${REPO}/releases/latest`;
+    primaryLabel.textContent = `Latest release for ${detected.name}`;
+    primaryMeta.textContent = `Asset not found in ${release.tag_name} — view releases`;
+  } else {
+    primaryBtn.href = `https://github.com/${REPO}/releases/latest`;
+    primaryLabel.textContent = `View latest release`;
+    primaryMeta.textContent = `Couldn't detect your platform — pick one below`;
+  }
+}
+
+(async function init() {
+  const detected = detectOSPlatform();
+  try {
+    const release = await fetchLatestRelease();
+    renderDownloads(release, detected);
+  } catch (err) {
+    document.getElementById("downloads-grid").innerHTML = `
+      <div class="status" style="grid-column: 1 / -1;">
+        Couldn't reach the GitHub Releases API (${escapeHtml(err.message)}).<br/>
+        <a class="btn btn-ghost" style="margin-top:14px;" href="https://github.com/${REPO}/releases/latest" rel="noopener">Open latest release on GitHub</a>
+      </div>`;
+    document.getElementById("latest-pill").textContent = "Releases on GitHub";
+    document.getElementById("primary-meta").textContent = "Couldn't fetch live release metadata — opens GitHub.";
+  }
+})();
+
+/* ------------------------------------------------------------------
+ * Three.js ambient point cloud
+ * ------------------------------------------------------------------ */
+(function bgScene() {
+  if (typeof THREE === "undefined") return;
+  const canvas = document.getElementById("bg-canvas");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, powerPreference: "low-power" });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 2000);
+  camera.position.z = 600;
+
+  const COUNT = 1200;
+  const positions = new Float32Array(COUNT * 3);
+  for (let i = 0; i < COUNT; i++) {
+    positions[i * 3 + 0] = (Math.random() - 0.5) * 1800;
+    positions[i * 3 + 1] = (Math.random() - 0.5) * 1200;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 1200;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0x8b5cf6, size: 1.6, sizeAttenuation: true, transparent: true, opacity: 0.55,
+    depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const points = new THREE.Points(geo, mat);
+  scene.add(points);
+
+  let mouseX = 0, mouseY = 0;
+  window.addEventListener("pointermove", e => {
+    mouseX = (e.clientX / window.innerWidth - 0.5) * 0.3;
+    mouseY = (e.clientY / window.innerHeight - 0.5) * 0.3;
+  }, { passive: true });
+
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+  });
+
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  let last = performance.now();
+  function frame(t) {
+    const dt = Math.min(t - last, 60); last = t;
+    if (!reduceMotion) {
+      points.rotation.y += dt * 0.00004;
+      points.rotation.x += dt * 0.00002;
+      camera.position.x += (mouseX * 80 - camera.position.x) * 0.04;
+      camera.position.y += (-mouseY * 80 - camera.position.y) * 0.04;
+      camera.lookAt(scene.position);
+    }
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
