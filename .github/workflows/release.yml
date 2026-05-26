@@ -77,11 +77,51 @@ jobs:
           secedit /configure /db $sdbOut /quiet | Out-Null
           Write-Host "Granted SeCreateSymbolicLinkPrivilege to $me"
 
+      # Windows-only: Defender real-time scanning is the single biggest
+      # source of slowness in electron-builder on windows-latest runners.
+      # It scans every file written during asar bundling and extraResources
+      # copy, which can stretch a 30-second packaging step into 15+ minutes.
+      # Adding the workspace + electron-builder cache as exclusions makes
+      # the packaging step finish in under a minute.
+      - name: Disable Windows Defender for build paths
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          try {
+            Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE"
+            Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron"
+            Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron-builder\Cache"
+            Add-MpPreference -ExclusionPath "$env:TEMP"
+            Add-MpPreference -ExclusionProcess "node.exe"
+            Add-MpPreference -ExclusionProcess "npm.exe"
+            Add-MpPreference -ExclusionProcess "7za.exe"
+            Add-MpPreference -ExclusionProcess "electron-builder.exe"
+            Write-Host "Defender exclusions added"
+          } catch {
+            Write-Warning "Add-MpPreference failed (Defender may be disabled): $_"
+          }
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
+
+      # Cache the electron-builder helper binaries (electron-vX-arch.zip,
+      # winCodeSign-2.6.0.7z, nsis-3.0.4.1.7z, etc). These are ~200 MB
+      # of one-time downloads per platform. Reusing them turns a cold
+      # 3-4 min electron-builder bootstrap into a 5-second extraction.
+      - name: Cache electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
 
       # Install the three workspaces explicitly. The root `npm install`
       # still runs its postinstall (now just `node scripts/fetch-tor.js`,
@@ -89,6 +129,18 @@ jobs:
       # the outer npm holds locks on node_modules/.staging).
       - name: Install root deps (+ auto-fetches Tor for this platform)
         run: npm install --no-audit --no-fund
+
+      # Strip pluggable_transports BEFORE electron-builder sees them.
+      # tor/tor/pluggable_transports/ contains obfs4proxy + snowflake
+      # binaries (~30 MB of native code we don't use). Including the
+      # tree as an exclusion glob forces electron-builder to still walk
+      # it during the extraResources copy phase. Deleting it is faster.
+      - name: Trim Tor bundle (drop unused pluggable transports)
+        shell: bash
+        run: |
+          rm -rf tor/tor/pluggable_transports || true
+          rm -f  tor/tor-bundle.tar.gz || true
+          ls -la tor tor/tor 2>/dev/null || true
 
       - name: Install backend-node deps (prod only)
         # backend-node has no devDependencies, but --omit=dev makes that
@@ -103,13 +155,7 @@ jobs:
 
       - name: Package installer
         env:
-          # No code-signing cert in CI. The package.json `win.signAndEditExecutable: false`
-          # already disables Windows signing; this just stops electron-builder from
-          # walking the keychain on macOS too.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          # Cap electron-builder's compression even if package.json is somehow
-          # overridden. "store" would be even faster but produces huge files.
-          DEBUG: 'electron-builder'
         run: npx electron-builder --publish never
 
       - name: Upload installer artifact
