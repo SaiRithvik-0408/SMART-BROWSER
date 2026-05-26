@@ -176,13 +176,37 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+
+          # ----- 1. Strip npm-created self-junctions ---------------------
+          # When the root package.json's `name` matches the parent of a
+          # child workspace, npm 10+ on Windows sometimes creates a
+          # junction node_modules/<name> pointing back at the repo root.
+          # On v1.0.11 this caused an infinite-recursion crash inside
+          # Copy-Item ("backend-node\node_modules\smart-browser\backend-
+          # node\node_modules\smart-browser\..." until MAX_PATH).
+          # Sweep all node_modules for ReparsePoint entries up front.
+          function Remove-Junctions {
+            param([string]$Root)
+            if (-not (Test-Path $Root)) { return }
+            Get-ChildItem -Path $Root -Recurse -Force -ErrorAction SilentlyContinue |
+              Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
+              ForEach-Object {
+                Write-Host "  removing junction: $($_.FullName)"
+                cmd /c "rmdir /s /q `"$($_.FullName)`"" 2>$null
+              }
+          }
+          Write-Host "Sweeping for junctions in backend-node, frontend, node_modules..."
+          Remove-Junctions "backend-node\node_modules"
+          Remove-Junctions "frontend\node_modules"
+          Remove-Junctions "node_modules"
+
+          # ----- 2. Download (cached) electron runtime ------------------
           $electronVersion = '31.7.7'
           $electronZip = "electron-v$electronVersion-win32-x64.zip"
           $electronUrl = "https://github.com/electron/electron/releases/download/v$electronVersion/$electronZip"
           $cacheDir = "$env:LOCALAPPDATA\electron\Cache"
           New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
           $electronZipPath = Join-Path $cacheDir $electronZip
-
           if (-not (Test-Path $electronZipPath)) {
             Write-Host "Downloading $electronUrl"
             Invoke-WebRequest -Uri $electronUrl -OutFile $electronZipPath -UseBasicParsing
@@ -190,6 +214,7 @@ jobs:
             Write-Host "Using cached $electronZipPath ($([math]::Round((Get-Item $electronZipPath).Length/1MB,1)) MB)"
           }
 
+          # ----- 3. Lay out win-unpacked/ -------------------------------
           $unpacked = "dist_electron\win-unpacked"
           if (Test-Path $unpacked) { Remove-Item -Recurse -Force $unpacked }
           New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
@@ -200,9 +225,22 @@ jobs:
           $appDir = Join-Path $unpacked "resources\app"
           New-Item -ItemType Directory -Force -Path $appDir | Out-Null
 
+          # ----- 4. Copy app sources (robocopy: handles long paths, /XJ
+          # skips junctions, exit code 0-7 = success, 8+ = error). -------
+          function Invoke-Robocopy {
+            param([string]$Src, [string]$Dst, [string[]]$Extra = @())
+            $args = @($Src, $Dst, '/E', '/XJ', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') + $Extra
+            Write-Host "  robocopy $($args -join ' ')"
+            & robocopy @args | Out-Null
+            if ($LASTEXITCODE -ge 8) {
+              throw "robocopy '$Src' -> '$Dst' failed with code $LASTEXITCODE"
+            }
+            $global:LASTEXITCODE = 0
+          }
+
           Write-Host "Copying app sources into resources\app..."
-          Copy-Item -Recurse -Force "electron"        (Join-Path $appDir "electron")
-          Copy-Item -Recurse -Force "frontend\dist"   (Join-Path $appDir "frontend\dist")
+          Invoke-Robocopy "electron"      (Join-Path $appDir "electron")
+          Invoke-Robocopy "frontend\dist" (Join-Path $appDir "frontend\dist")
 
           @{
             name = "smart-browser"
@@ -214,22 +252,21 @@ jobs:
           } | ConvertTo-Json | Set-Content -Path (Join-Path $appDir "package.json") -Encoding UTF8
 
           Write-Host "Copying extraResources (backend-node, tor)..."
-          Copy-Item -Recurse -Force "backend-node" (Join-Path $unpacked "resources\backend-node")
+          Invoke-Robocopy "backend-node" (Join-Path $unpacked "resources\backend-node") @('/XD','test','tests','__tests__','docs','example','examples','.cache')
+
           $torDest = Join-Path $unpacked "resources\tor"
           New-Item -ItemType Directory -Force -Path (Join-Path $torDest "tor")     | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $torDest "data")    | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $torDest "configs") | Out-Null
-          Copy-Item -Recurse -Force "tor\tor\*"      (Join-Path $torDest "tor")
-          Copy-Item -Force         "tor\data\geoip"  (Join-Path $torDest "data\geoip")
-          Copy-Item -Force         "tor\data\geoip6" (Join-Path $torDest "data\geoip6")
-          Copy-Item -Force         "tor\configs\torrc-*" (Join-Path $torDest "configs")
-          if (Test-Path (Join-Path $torDest "tor\pluggable_transports")) {
-            Remove-Item -Recurse -Force (Join-Path $torDest "tor\pluggable_transports")
-          }
+          Invoke-Robocopy "tor\tor" (Join-Path $torDest "tor") @('/XD','pluggable_transports')
+          Copy-Item -Force "tor\data\geoip"   (Join-Path $torDest "data\geoip")
+          Copy-Item -Force "tor\data\geoip6"  (Join-Path $torDest "data\geoip6")
+          Copy-Item -Force "tor\configs\torrc-*" (Join-Path $torDest "configs")
 
           Write-Host "Renaming electron.exe -> SmartBrowser.exe..."
           Move-Item (Join-Path $unpacked "electron.exe") (Join-Path $unpacked "SmartBrowser.exe") -Force
 
+          # ----- 5. Zip win-unpacked/ -----------------------------------
           $outZip = "dist_electron\SmartBrowser-1.0.0-win-x64.zip"
           if (Test-Path $outZip) { Remove-Item -Force $outZip }
           Write-Host "Creating $outZip ..."
