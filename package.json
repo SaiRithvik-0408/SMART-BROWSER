@@ -29,15 +29,33 @@
     "directories": {
       "output": "dist_electron"
     },
+    "compression": "normal",
+    "asar": true,
     "files": [
       "electron/**",
-      "backend-node/**",
       "frontend/dist/**",
-      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,tests,__tests__,docs,doc,example,examples}/**",
+      "!**/node_modules/*/{*.ts,*.map,.eslintrc,.npmignore,.travis.yml,.editorconfig,LICENSE,license}",
+      "!**/*.{md,markdown}"
     ],
     "extraResources": [
       { "from": "backend-node", "to": "backend-node",
-        "filter": ["**/*", "!node_modules/.cache/**"] },
+        "filter": [
+          "**/*",
+          "!node_modules/.cache/**",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/__tests__/**",
+          "!**/docs/**",
+          "!**/example/**",
+          "!**/examples/**",
+          "!**/*.md",
+          "!**/*.markdown",
+          "!**/*.map",
+          "!**/*.ts"
+        ]
+      },
       { "from": "tor", "to": "tor",
         "filter": [
           "tor/tor.exe", "tor/tor",
@@ -50,11 +68,15 @@
       }
     ],
     "win": {
-      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
       "signAndEditExecutable": false
     },
-    "portable": {
-      "artifactName": "SmartBrowser-${version}-portable.exe"
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "SmartBrowser-${version}-Setup.exe"
     },
     "mac": { "target": "dmg" },
     "linux": { "target": "AppImage" }

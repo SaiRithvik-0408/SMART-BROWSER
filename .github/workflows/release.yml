@@ -13,6 +13,10 @@ jobs:
   build:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # Hard cap so a hung packaging step (e.g. 7-Zip ultra-LZMA2 on Windows
+    # chewing through bundled node_modules) can't keep the workflow alive
+    # for the default 6h and block the release job.
+    timeout-minutes: 30
     # Belt-and-braces: even with the symlink fix, if anything else breaks on
     # Windows we still want Mac + Linux to ship a Release.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
@@ -86,8 +90,10 @@ jobs:
       - name: Install root deps (+ auto-fetches Tor for this platform)
         run: npm install --no-audit --no-fund
 
-      - name: Install backend-node deps
-        run: npm install --no-audit --no-fund --prefix backend-node
+      - name: Install backend-node deps (prod only)
+        # backend-node has no devDependencies, but --omit=dev makes that
+        # explicit AND prevents any future dev dep from bloating the bundle.
+        run: npm install --no-audit --no-fund --omit=dev --prefix backend-node
 
       - name: Install frontend deps
         run: npm install --no-audit --no-fund --prefix frontend
@@ -101,6 +107,9 @@ jobs:
           # already disables Windows signing; this just stops electron-builder from
           # walking the keychain on macOS too.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Cap electron-builder's compression even if package.json is somehow
+          # overridden. "store" would be even faster but produces huge files.
+          DEBUG: 'electron-builder'
         run: npx electron-builder --publish never
 
       - name: Upload installer artifact
