@@ -58,25 +58,20 @@
       },
       { "from": "tor", "to": "tor",
         "filter": [
-          "tor/tor.exe", "tor/tor",
-          "data/geoip", "data/geoip6",
+          "tor/**/*",
+          "data/geoip",
+          "data/geoip6",
           "configs/torrc-*",
+          "!tor/pluggable_transports/**",
           "!**/data-*/**",
-          "!**/pluggable_transports/**",
           "!**/*.tar.gz"
         ]
       }
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
-      "signAndEditExecutable": false
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false,
-      "artifactName": "SmartBrowser-${version}-Setup.exe"
+      "target": [{ "target": "zip", "arch": ["x64"] }],
+      "signAndEditExecutable": false,
+      "artifactName": "SmartBrowser-${version}-win-x64.${ext}"
     },
     "mac": { "target": "dmg" },
     "linux": { "target": "AppImage" }
