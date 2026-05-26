@@ -4,8 +4,10 @@
   "description": "SmartBrowser — privacy-first desktop browser with built-in VPN, IP masking, and URL/website masking.",
   "main": "electron/main.js",
   "scripts": {
-    "postinstall": "node scripts/fetch-tor.js && npm install --prefix backend-node && npm install --prefix frontend",
+    "postinstall": "node scripts/fetch-tor.js",
     "setup:tor": "node scripts/fetch-tor.js",
+    "setup:deps": "npm install --no-audit --no-fund --prefix backend-node && npm install --no-audit --no-fund --prefix frontend",
+    "setup": "node scripts/fetch-tor.js && npm run setup:deps",
     "start": "cross-env NODE_ENV=development electron .",
     "dev": "concurrently -k -n backend,frontend,electron -c blue,magenta,green \"npm start --prefix backend-node\" \"npm run dev --prefix frontend\" \"wait-on tcp:5173 tcp:8080 && cross-env NODE_ENV=development electron .\"",
     "build:frontend": "npm run build --prefix frontend",
@@ -24,19 +26,53 @@
   "build": {
     "appId": "com.smartbrowser.app",
     "productName": "SmartBrowser",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "compression": "normal",
+    "asar": true,
     "files": [
       "electron/**",
-      "backend-node/**",
       "frontend/dist/**",
-      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,tests,__tests__,docs,doc,example,examples}/**",
+      "!**/node_modules/*/{*.ts,*.map,.eslintrc,.npmignore,.travis.yml,.editorconfig,LICENSE,license}",
+      "!**/*.{md,markdown}"
     ],
     "extraResources": [
       { "from": "backend-node", "to": "backend-node",
-        "filter": ["**/*", "!node_modules/.cache/**"] },
+        "filter": [
+          "**/*",
+          "!node_modules/.cache/**",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/__tests__/**",
+          "!**/docs/**",
+          "!**/example/**",
+          "!**/examples/**",
+          "!**/*.md",
+          "!**/*.markdown",
+          "!**/*.map",
+          "!**/*.ts"
+        ]
+      },
       { "from": "tor", "to": "tor",
-        "filter": ["tor/**", "data/geoip", "data/geoip6", "configs/**", "!data-*/**", "!*.tar.gz"] }
+        "filter": [
+          "tor/**/*",
+          "data/geoip",
+          "data/geoip6",
+          "configs/torrc-*",
+          "!tor/pluggable_transports/**",
+          "!**/data-*/**",
+          "!**/*.tar.gz"
+        ]
+      }
     ],
-    "win": { "target": "nsis" },
+    "win": {
+      "target": [{ "target": "zip", "arch": ["x64"] }],
+      "signAndEditExecutable": false,
+      "artifactName": "SmartBrowser-${version}-win-x64.${ext}"
+    },
     "mac": { "target": "dmg" },
     "linux": { "target": "AppImage" }
   }

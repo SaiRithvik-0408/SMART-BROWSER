@@ -144,13 +144,17 @@ SMART BROWSER/
 ### Install
 
 ```bash
-# At the project root:
-npm install                # Electron + electron-builder
+# At the project root - installs Electron + electron-builder and
+# auto-runs scripts/fetch-tor.js to download the Tor Expert Bundle
+# (~22 MB) for your platform into ./tor/:
+npm install
 
-# Subprojects:
-npm install --prefix frontend
-npm install --prefix backend-node
+# Install the backend + frontend workspaces:
+npm run setup:deps          # = npm install --prefix backend-node
+                            #   && npm install --prefix frontend
 ```
+
+Or for a true one-shot install run `npm install && npm run setup:deps`. To re-fetch only Tor later: `npm run setup:tor`.
 
 ### Run (one-shot, recommended)
 

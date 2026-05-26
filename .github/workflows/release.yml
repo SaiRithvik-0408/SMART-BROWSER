@@ -1,0 +1,310 @@
+name: Build & Release SmartBrowser
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:        # also allow manual trigger from the Actions tab
+
+permissions:
+  contents: write           # needed to create the GitHub Release
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    # Hard cap so a hung packaging step (e.g. 7-Zip ultra-LZMA2 on Windows
+    # chewing through bundled node_modules) can't keep the workflow alive
+    # for the default 6h and block the release job.
+    timeout-minutes: 30
+    # Belt-and-braces: even with the symlink fix, if anything else breaks on
+    # Windows we still want Mac + Linux to ship a Release.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_glob: 'dist_electron/*.zip'
+          - os: macos-latest
+            artifact_glob: 'dist_electron/*.dmg'
+          - os: ubuntu-latest
+            artifact_glob: 'dist_electron/*.AppImage'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Windows-only: grant the runner the ability to create symbolic links
+      # without elevation. GitHub-hosted windows-2022 runners run as
+      # `runneradmin` but with a standard-user token, so SeCreateSymbolicLinkPrivilege
+      # is NOT in effect by default. electron-builder's first Windows run
+      # downloads winCodeSign-2.6.0.7z and extracts it with 7za; that archive
+      # contains macOS dylibs stored as symlinks and the extraction fails
+      # without this privilege ("A required privilege is not held by the client").
+      # Two complementary fixes here, applied in order:
+      #   1) Enable Developer Mode, which lets non-elevated processes use the
+      #      SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE flag that 7-Zip 21+
+      #      passes to CreateSymbolicLinkW.
+      #   2) Explicitly grant SeCreateSymbolicLinkPrivilege to the current user
+      #      via local security policy as a belt-and-braces fallback.
+      - name: Allow symlink creation (Windows only)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $regPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
+          if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+          New-ItemProperty -Path $regPath -Name 'AllowDevelopmentWithoutDevLicense' -Value 1 -PropertyType DWORD -Force | Out-Null
+          Write-Host "Developer Mode registry flag set"
+
+          $tmp = New-TemporaryFile
+          secedit /export /cfg $tmp.FullName | Out-Null
+          $content = Get-Content $tmp.FullName -Raw
+          $me = (whoami).Trim()
+          if ($content -match 'SeCreateSymbolicLinkPrivilege\s*=\s*([^\r\n]+)') {
+            $current = $Matches[1]
+            if ($current -notmatch [regex]::Escape($me)) {
+              $new = "SeCreateSymbolicLinkPrivilege = $current,$me"
+              $content = $content -replace 'SeCreateSymbolicLinkPrivilege\s*=\s*[^\r\n]+', $new
+            }
+          } else {
+            $content = $content -replace '(\[Privilege Rights\])', "`$1`r`nSeCreateSymbolicLinkPrivilege = $me"
+          }
+          $infOut = New-TemporaryFile
+          Set-Content -Path $infOut.FullName -Value $content -Encoding Unicode
+          $sdbOut = "$env:TEMP\smartbrowser-secedit.sdb"
+          secedit /import /cfg $infOut.FullName /db $sdbOut /quiet | Out-Null
+          secedit /configure /db $sdbOut /quiet | Out-Null
+          Write-Host "Granted SeCreateSymbolicLinkPrivilege to $me"
+
+      # Windows-only: Defender real-time scanning is the single biggest
+      # source of slowness in electron-builder on windows-latest runners.
+      # It scans every file written during asar bundling and extraResources
+      # copy, which can stretch a 30-second packaging step into 15+ minutes.
+      # Adding the workspace + electron-builder cache as exclusions makes
+      # the packaging step finish in under a minute.
+      - name: Disable Windows Defender for build paths
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          try {
+            Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE"
+            Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron"
+            Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron-builder\Cache"
+            Add-MpPreference -ExclusionPath "$env:TEMP"
+            Add-MpPreference -ExclusionProcess "node.exe"
+            Add-MpPreference -ExclusionProcess "npm.exe"
+            Add-MpPreference -ExclusionProcess "7za.exe"
+            Add-MpPreference -ExclusionProcess "electron-builder.exe"
+            Write-Host "Defender exclusions added"
+          } catch {
+            Write-Warning "Add-MpPreference failed (Defender may be disabled): $_"
+          }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # Cache the electron-builder helper binaries (electron-vX-arch.zip,
+      # winCodeSign-2.6.0.7z, nsis-3.0.4.1.7z, etc). These are ~200 MB
+      # of one-time downloads per platform. Reusing them turns a cold
+      # 3-4 min electron-builder bootstrap into a 5-second extraction.
+      - name: Cache electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
+      # Install the three workspaces explicitly. The root `npm install`
+      # still runs its postinstall (now just `node scripts/fetch-tor.js`,
+      # NOT recursive child installs - that dead-locks on Windows because
+      # the outer npm holds locks on node_modules/.staging).
+      - name: Install root deps (+ auto-fetches Tor for this platform)
+        run: npm install --no-audit --no-fund
+
+      # Strip pluggable_transports BEFORE electron-builder sees them.
+      # tor/tor/pluggable_transports/ contains obfs4proxy + snowflake
+      # binaries (~30 MB of native code we don't use). Including the
+      # tree as an exclusion glob forces electron-builder to still walk
+      # it during the extraResources copy phase. Deleting it is faster.
+      - name: Trim Tor bundle (drop unused pluggable transports)
+        shell: bash
+        run: |
+          rm -rf tor/tor/pluggable_transports || true
+          rm -f  tor/tor-bundle.tar.gz || true
+          ls -la tor tor/tor 2>/dev/null || true
+
+      - name: Install backend-node deps (prod only)
+        # backend-node has no devDependencies, but --omit=dev makes that
+        # explicit AND prevents any future dev dep from bloating the bundle.
+        run: npm install --no-audit --no-fund --omit=dev --prefix backend-node
+
+      - name: Install frontend deps
+        run: npm install --no-audit --no-fund --prefix frontend
+
+      - name: Build frontend
+        run: npm run build:frontend
+
+      # --- Non-Windows: electron-builder (proven to work, ~1 min) ---
+      - name: Package installer (mac/linux)
+        if: matrix.os != 'windows-latest'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --publish never
+
+      # --- Windows: hand-rolled build, bypasses electron-builder entirely ---
+      # Every electron-builder attempt on windows-latest (portable, nsis,
+      # zip; with/without Defender exclusions; with/without symlink fix)
+      # has gotten stuck in the same internal step for 10-17 min. Stop
+      # fighting the tool: do the exact same work in PowerShell.
+      #   1. Download the Electron pre-built zip (already cached above).
+      #   2. Extract it to win-unpacked/.
+      #   3. Drop our app + extraResources into win-unpacked/resources/.
+      #   4. Rename electron.exe -> SmartBrowser.exe.
+      #   5. Zip the whole win-unpacked/ folder.
+      # Total expected runtime: ~90 seconds.
+      - name: Package installer (windows - manual)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # ----- 1. Strip npm-created self-junctions ---------------------
+          # When the root package.json's `name` matches the parent of a
+          # child workspace, npm 10+ on Windows sometimes creates a
+          # junction node_modules/<name> pointing back at the repo root.
+          # On v1.0.11 this caused an infinite-recursion crash inside
+          # Copy-Item ("backend-node\node_modules\smart-browser\backend-
+          # node\node_modules\smart-browser\..." until MAX_PATH).
+          # Sweep all node_modules for ReparsePoint entries up front.
+          function Remove-Junctions {
+            param([string]$Root)
+            if (-not (Test-Path $Root)) { return }
+            Get-ChildItem -Path $Root -Recurse -Force -ErrorAction SilentlyContinue |
+              Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
+              ForEach-Object {
+                Write-Host "  removing junction: $($_.FullName)"
+                cmd /c "rmdir /s /q `"$($_.FullName)`"" 2>$null
+              }
+          }
+          Write-Host "Sweeping for junctions in backend-node, frontend, node_modules..."
+          Remove-Junctions "backend-node\node_modules"
+          Remove-Junctions "frontend\node_modules"
+          Remove-Junctions "node_modules"
+
+          # ----- 2. Download (cached) electron runtime ------------------
+          $electronVersion = '31.7.7'
+          $electronZip = "electron-v$electronVersion-win32-x64.zip"
+          $electronUrl = "https://github.com/electron/electron/releases/download/v$electronVersion/$electronZip"
+          $cacheDir = "$env:LOCALAPPDATA\electron\Cache"
+          New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+          $electronZipPath = Join-Path $cacheDir $electronZip
+          if (-not (Test-Path $electronZipPath)) {
+            Write-Host "Downloading $electronUrl"
+            Invoke-WebRequest -Uri $electronUrl -OutFile $electronZipPath -UseBasicParsing
+          } else {
+            Write-Host "Using cached $electronZipPath ($([math]::Round((Get-Item $electronZipPath).Length/1MB,1)) MB)"
+          }
+
+          # ----- 3. Lay out win-unpacked/ -------------------------------
+          $unpacked = "dist_electron\win-unpacked"
+          if (Test-Path $unpacked) { Remove-Item -Recurse -Force $unpacked }
+          New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
+
+          Write-Host "Extracting Electron runtime..."
+          Expand-Archive -Path $electronZipPath -DestinationPath $unpacked -Force
+
+          $appDir = Join-Path $unpacked "resources\app"
+          New-Item -ItemType Directory -Force -Path $appDir | Out-Null
+
+          # ----- 4. Copy app sources (robocopy: handles long paths, /XJ
+          # skips junctions, exit code 0-7 = success, 8+ = error). -------
+          function Invoke-Robocopy {
+            param([string]$Src, [string]$Dst, [string[]]$Extra = @())
+            $args = @($Src, $Dst, '/E', '/XJ', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') + $Extra
+            Write-Host "  robocopy $($args -join ' ')"
+            & robocopy @args | Out-Null
+            if ($LASTEXITCODE -ge 8) {
+              throw "robocopy '$Src' -> '$Dst' failed with code $LASTEXITCODE"
+            }
+            $global:LASTEXITCODE = 0
+          }
+
+          Write-Host "Copying app sources into resources\app..."
+          Invoke-Robocopy "electron"      (Join-Path $appDir "electron")
+          Invoke-Robocopy "frontend\dist" (Join-Path $appDir "frontend\dist")
+
+          @{
+            name = "smart-browser"
+            version = "1.0.0"
+            main = "electron/main.js"
+            description = "SmartBrowser - privacy-first browser with built-in Tor VPN"
+            author = "SmartBrowser"
+            license = "MIT"
+          } | ConvertTo-Json | Set-Content -Path (Join-Path $appDir "package.json") -Encoding UTF8
+
+          Write-Host "Copying extraResources (backend-node, tor)..."
+          Invoke-Robocopy "backend-node" (Join-Path $unpacked "resources\backend-node") @('/XD','test','tests','__tests__','docs','example','examples','.cache')
+
+          $torDest = Join-Path $unpacked "resources\tor"
+          New-Item -ItemType Directory -Force -Path (Join-Path $torDest "tor")     | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $torDest "data")    | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $torDest "configs") | Out-Null
+          Invoke-Robocopy "tor\tor" (Join-Path $torDest "tor") @('/XD','pluggable_transports')
+          Copy-Item -Force "tor\data\geoip"   (Join-Path $torDest "data\geoip")
+          Copy-Item -Force "tor\data\geoip6"  (Join-Path $torDest "data\geoip6")
+          Copy-Item -Force "tor\configs\torrc-*" (Join-Path $torDest "configs")
+
+          Write-Host "Renaming electron.exe -> SmartBrowser.exe..."
+          Move-Item (Join-Path $unpacked "electron.exe") (Join-Path $unpacked "SmartBrowser.exe") -Force
+
+          # ----- 5. Zip win-unpacked/ -----------------------------------
+          $outZip = "dist_electron\SmartBrowser-1.0.0-win-x64.zip"
+          if (Test-Path $outZip) { Remove-Item -Force $outZip }
+          Write-Host "Creating $outZip ..."
+          Compress-Archive -Path "$unpacked\*" -DestinationPath $outZip -CompressionLevel Optimal
+
+          $size = [math]::Round((Get-Item $outZip).Length/1MB,1)
+          Write-Host "DONE: $outZip ($size MB)"
+          Get-ChildItem dist_electron
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartbrowser-${{ matrix.os }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    # Run even if Windows job was marked continue-on-error and "failed".
+    # As long as at least one platform produced an artifact we ship a Release.
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: SmartBrowser ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.dmg
+            artifacts/**/*.AppImage
+          fail_on_unmatched_files: false
