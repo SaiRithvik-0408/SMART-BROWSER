@@ -3,7 +3,7 @@ name: Deploy landing page to GitHub Pages
 on:
   # Auto-deploy when the landing page itself changes...
   push:
-    branches: [release, main]
+    branches: [main]
     paths:
       - 'landing/**'
       - '.github/workflows/pages.yml'
