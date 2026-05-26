@@ -13,14 +13,8 @@ jobs:
   build:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # NOTE: Windows is `continue-on-error` because GitHub-hosted windows-2022
-    # runners do not grant SeCreateSymbolicLinkPrivilege, and every
-    # Windows electron-builder run unconditionally downloads + 7z-extracts
-    # winCodeSign-2.6.0.7z which contains macOS dylibs stored as symlinks.
-    # Extraction fails with "A required privilege is not held by the client"
-    # and electron-builder retries 4x (~15-20 min). Until we either
-    # cross-compile via wine on Linux or pre-extract the cache, let the
-    # Mac + Linux artifacts ship without blocking on Windows.
+    # Belt-and-braces: even with the symlink fix, if anything else breaks on
+    # Windows we still want Mac + Linux to ship a Release.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
@@ -36,6 +30,48 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Windows-only: grant the runner the ability to create symbolic links
+      # without elevation. GitHub-hosted windows-2022 runners run as
+      # `runneradmin` but with a standard-user token, so SeCreateSymbolicLinkPrivilege
+      # is NOT in effect by default. electron-builder's first Windows run
+      # downloads winCodeSign-2.6.0.7z and extracts it with 7za; that archive
+      # contains macOS dylibs stored as symlinks and the extraction fails
+      # without this privilege ("A required privilege is not held by the client").
+      # Two complementary fixes here, applied in order:
+      #   1) Enable Developer Mode, which lets non-elevated processes use the
+      #      SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE flag that 7-Zip 21+
+      #      passes to CreateSymbolicLinkW.
+      #   2) Explicitly grant SeCreateSymbolicLinkPrivilege to the current user
+      #      via local security policy as a belt-and-braces fallback.
+      - name: Allow symlink creation (Windows only)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $regPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
+          if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+          New-ItemProperty -Path $regPath -Name 'AllowDevelopmentWithoutDevLicense' -Value 1 -PropertyType DWORD -Force | Out-Null
+          Write-Host "Developer Mode registry flag set"
+
+          $tmp = New-TemporaryFile
+          secedit /export /cfg $tmp.FullName | Out-Null
+          $content = Get-Content $tmp.FullName -Raw
+          $me = (whoami).Trim()
+          if ($content -match 'SeCreateSymbolicLinkPrivilege\s*=\s*([^\r\n]+)') {
+            $current = $Matches[1]
+            if ($current -notmatch [regex]::Escape($me)) {
+              $new = "SeCreateSymbolicLinkPrivilege = $current,$me"
+              $content = $content -replace 'SeCreateSymbolicLinkPrivilege\s*=\s*[^\r\n]+', $new
+            }
+          } else {
+            $content = $content -replace '(\[Privilege Rights\])', "`$1`r`nSeCreateSymbolicLinkPrivilege = $me"
+          }
+          $infOut = New-TemporaryFile
+          Set-Content -Path $infOut.FullName -Value $content -Encoding Unicode
+          $sdbOut = "$env:TEMP\smartbrowser-secedit.sdb"
+          secedit /import /cfg $infOut.FullName /db $sdbOut /quiet | Out-Null
+          secedit /configure /db $sdbOut /quiet | Out-Null
+          Write-Host "Granted SeCreateSymbolicLinkPrivilege to $me"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
