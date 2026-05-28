@@ -333,6 +333,14 @@ ipcMain.handle('tab:open-devtools', (_e, tabId) => {
 
 // ====================  Lifecycle  ===========================================
 app.whenReady().then(() => {
+  // Strip Electron-specific tokens so sites see a plain Chrome user agent.
+  // This prevents sites like DuckDuckGo from showing "upgrade your browser" ads
+  // and stops servers from fingerprinting the app as an Electron shell.
+  const cleanUA = session.defaultSession.getUserAgent()
+    .replace(/\s+Electron\/\S+/, '')
+    .replace(/\s+smart-browser\/\S+/, '');
+  session.defaultSession.setUserAgent(cleanUA);
+
   startTor();
   startBackend();
   createWindow();

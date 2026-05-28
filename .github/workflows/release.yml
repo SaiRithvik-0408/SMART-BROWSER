@@ -266,11 +266,14 @@ jobs:
           Write-Host "Renaming electron.exe -> SmartBrowser.exe..."
           Move-Item (Join-Path $unpacked "electron.exe") (Join-Path $unpacked "SmartBrowser.exe") -Force
 
-          # ----- 5. Zip win-unpacked/ -----------------------------------
+          # ----- 5. Rename folder then zip so extraction gives SmartBrowser/ ---
+          $namedDir = "dist_electron\SmartBrowser"
+          if (Test-Path $namedDir) { Remove-Item -Recurse -Force $namedDir }
+          Rename-Item $unpacked $namedDir
           $outZip = "dist_electron\SmartBrowser-1.0.0-win-x64.zip"
           if (Test-Path $outZip) { Remove-Item -Force $outZip }
           Write-Host "Creating $outZip ..."
-          Compress-Archive -Path "$unpacked\*" -DestinationPath $outZip -CompressionLevel Optimal
+          Compress-Archive -Path $namedDir -DestinationPath $outZip -CompressionLevel Optimal
 
           $size = [math]::Round((Get-Item $outZip).Length/1MB,1)
           Write-Host "DONE: $outZip ($size MB)"
