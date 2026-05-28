@@ -36,6 +36,19 @@ section collects changes that have landed on `main` but are not yet tagged.
   the viewport instead of at the top, giving the favorites header and the
   widget dashboard cleaner separation.
 
+### Fixed
+
+- **Auto-updater shows a visible console window on Windows 11**: the helper
+  is now launched via a tiny `.vbs` wrapper (`WScript.Shell.Run … 0`), the
+  only reliable way to suppress the console window when Windows Terminal hosts
+  cmd. Node's `windowsHide: true` is ignored in that case.
+- **Auto-updater wait-loop could hang forever**: capped at 30 seconds and
+  proceeds to install regardless. Electron spawns multiple helper processes
+  that share the `SmartBrowser.exe` name; a lingering renderer would
+  previously block the loop indefinitely.
+- **App didn't always exit before update**: now calls `app.quit()` followed
+  by a force `app.exit(0)` after 1.5 s so the installer can replace files.
+
 - **Built-in ad / tracker blocker** (`electron/adblock.js`).
   - Network-level blocking via `session.webRequest.onBeforeRequest` against a
     built-in list of ~120 ad / analytics / tracker hosts (parent-domain aware).

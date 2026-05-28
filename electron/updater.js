@@ -120,6 +120,16 @@ async function check() {
 // to exit, installs the update, and relaunches.
 //   - Setup .exe  → run silently with /S (per-user install, overwrites in place)
 //   - .zip (fallback) → extract + robocopy over the install dir
+//
+// The helper is launched via a tiny .vbs wrapper using WScript.Shell.Run with
+// `intWindowStyle = 0` (vbHide). This is the ONLY reliable way to suppress the
+// console window on Windows 11, where Windows Terminal hosts cmd in its own
+// process and ignores Node's `windowsHide: true` flag.
+//
+// The wait-loop is capped at 30 seconds: Electron spawns multiple helper
+// processes that all share the SmartBrowser.exe name, so a lingering renderer
+// would otherwise hang the loop forever. After the cap we just install — NSIS
+// silent install over a partially-running app is well-tolerated.
 async function applyWindows(info, onProgress) {
   const tmp = path.join(os.tmpdir(), `sb-update-${Date.now()}`);
   fs.mkdirSync(tmp, { recursive: true });
@@ -128,53 +138,58 @@ async function applyWindows(info, onProgress) {
 
   const exePath = process.execPath;
   const cmdPath = path.join(tmp, 'sb-update.cmd');
+  const vbsPath = path.join(tmp, 'sb-launch.vbs');
   const isInstaller = /\.exe$/i.test(info.assetName);
 
   let installStep;
   if (isInstaller) {
-    // NSIS silent install into the existing per-user location.
-    installStep =
-`echo Installing update...
-"${assetPath}" /S
-`;
+    installStep = `"${assetPath}" /S\r\n`;
   } else {
     const installDir = path.dirname(process.resourcesPath);
     const extractDir = path.join(tmp, 'extract');
     installStep =
-`echo Extracting update...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '${assetPath}' -DestinationPath '${extractDir}' -Force"
-set "SRC=${extractDir}\\SmartBrowser"
-if not exist "%SRC%" set "SRC=${extractDir}"
-echo Installing update...
-robocopy "%SRC%" "${installDir}" /E /IS /IT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP >nul
-`;
+`powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '${assetPath}' -DestinationPath '${extractDir}' -Force"\r\nset "SRC=${extractDir}\\SmartBrowser"\r\nif not exist "%SRC%" set "SRC=${extractDir}"\r\nrobocopy "%SRC%" "${installDir}" /E /IS /IT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP >nul\r\n`;
   }
 
   const script =
 `@echo off
 setlocal
-echo Waiting for SmartBrowser to close...
+set /a tries=0
 :waitloop
+set /a tries+=1
+if %tries% gtr 30 goto install
 tasklist /fi "imagename eq SmartBrowser.exe" 2>nul | find /i "SmartBrowser.exe" >nul
 if not errorlevel 1 (
   timeout /t 1 /nobreak >nul
   goto waitloop
 )
-${installStep}echo Relaunching...
-start "" "${exePath}"
+:install
+${installStep}start "" "${exePath}"
 rmdir /s /q "${tmp}" >nul 2>&1
 del "%~f0" >nul 2>&1
 `;
   fs.writeFileSync(cmdPath, script, 'utf-8');
 
-  const child = spawn('cmd.exe', ['/c', cmdPath], {
+  // VBS wrapper: WScript.Shell.Run with vbHide(0) truly hides the console.
+  // Chr(34) is a double quote (works regardless of paths with spaces).
+  const vbs =
+`Set sh = CreateObject("WScript.Shell")\r\nsh.Run Chr(34) & "${cmdPath}" & Chr(34), 0, False\r\n`;
+  fs.writeFileSync(vbsPath, vbs, 'utf-8');
+
+  const child = spawn('wscript.exe', [vbsPath], {
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
   });
   child.unref();
 
-  setTimeout(() => app.quit(), 400);
+  // Give wscript a beat to spawn the hidden cmd, then quit hard. `app.quit()`
+  // can be blocked by handlers; follow up with `app.exit(0)` as a safety net
+  // so the helper's wait-loop can proceed.
+  setTimeout(() => {
+    try { app.quit(); } catch {}
+    setTimeout(() => { try { app.exit(0); } catch {} }, 1500);
+  }, 500);
   return { applying: true };
 }
 
