@@ -38,6 +38,15 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ### Changed
 
+- **Chrome/Brave-style dynamic tab strip**: tabs are now custom flex children
+  instead of MUI `<Tabs>`. With one tab open, the tab grows to its max width
+  (320 px active, 240 px inactive). As more tabs are opened, they share the
+  available row space proportionally and shrink down to their min width
+  (140 px active, 80 px inactive). The active tab always uses a 1.6× grow
+  factor and a 0.6× shrink factor, so it stays visibly wider than the others
+  at all tab counts. The **+** button now sits immediately after the last tab
+  (not at the far right of the bar), and the active tab has a brighter blue
+  surface plus a gradient accent strip along its bottom edge.
 - **Brave-style integrated title bar**: the native OS title bar is now hidden
   (`titleBarStyle: 'hidden'`). On Windows + Linux the standard min/max/close
   buttons are drawn as a transparent overlay directly inside the tab strip
