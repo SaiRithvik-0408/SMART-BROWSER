@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Box, Typography, IconButton, Menu, MenuItem, Button,
-  InputBase, Select, TextField, Tooltip,
+  InputBase, Select, TextField, Tooltip, Popover,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
@@ -31,15 +31,25 @@ import NewsFeed from './NewsFeed';
 
 const sbAPI = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
-// v5 introduces three new widget types (search / aishortcuts / apps) which
-// migrate in as additions to the user's existing layout instead of wiping
-// it. v4 halved the rowHeight (40 px instead of 80) and doubled all `h`
-// values so widgets kept the same on-screen size after the change.
-const STORAGE_KEY        = 'smartbrowser.widgets.v5';
+// v6 widens the default grid from 12 → 20 columns (user-configurable via a
+// dashboard control), drops the minimum widget size to 1×1, and adds the
+// brand + header widget types. Existing widgets sized in 12-col units get
+// scaled out to 20 cols (and 8/16/24 etc.) when the user picks a different
+// column count.
+const STORAGE_KEY        = 'smartbrowser.widgets.v6';
+const LEGACY_KEY_V5      = 'smartbrowser.widgets.v5';
 const LEGACY_KEY_V4      = 'smartbrowser.widgets.v4';
 const LEGACY_KEY_V3      = 'smartbrowser.widgets.v3';
 const LEGACY_KEY_V2      = 'smartbrowser.widgets.v2';
 const LAYOUT_STORAGE_KEY = 'smartbrowser.widgets.layout.v1';
+const GRID_COLS_KEY      = 'smartbrowser.widgets.gridCols.v1';
+
+// v5 widgets were laid out in a 12-column grid. v6 default is 20 columns
+// so we scale every widget's `x` / `w` when migrating.
+const V5_REFERENCE_COLS  = 12;
+const DEFAULT_GRID_COLS  = 20;
+// Column count options exposed in the dashboard header dropdown.
+const GRID_COL_OPTIONS   = [8, 12, 16, 20, 24, 30];
 
 // Nothing-UI-inspired tokens: monospace, uppercase, flat black surfaces,
 // a single red accent, dotted grid texture.
@@ -55,38 +65,48 @@ const LINE = 'rgba(255,255,255,0.10)';
 // Heights doubled vs the original 80px rowHeight era because we halved the
 // row height to 40 px for smoother user resizing. A widget with h=4 here is
 // the same on-screen as h=2 was in v3.
+// minSize is uniformly 1×1 — the user explicitly asked that every widget be
+// able to shrink to a single grid cell. Some widgets (news / AI chat) won't
+// be usable at that size but the option is there, intentionally.
+//
+// `addable` controls whether the type shows up in the "Add widget" menu.
+// `singleton` means at most one instance can exist (the brand widget).
+// `removable: false` hides the × button so the user can't delete it.
 const CATALOG = [
-  { type: 'search',     label: 'Search',       icon: <SearchIcon fontSize="small" />,        defaultSize: { w: 12, h: 3  }, minSize: { w: 4, h: 3 } },
-  { type: 'aishortcuts',label: 'AI Shortcuts', icon: <SmartToyIcon fontSize="small" />,      defaultSize: { w: 12, h: 3  }, minSize: { w: 4, h: 3 } },
-  { type: 'apps',       label: 'Apps',         icon: <AppsIcon fontSize="small" />,          defaultSize: { w: 6,  h: 10 }, minSize: { w: 4, h: 6 } },
-  { type: 'clock',      label: 'Clock',        icon: <AccessTimeIcon fontSize="small" />,    defaultSize: { w: 4,  h: 4  }, minSize: { w: 2, h: 4 } },
-  { type: 'calendar',   label: 'Calendar',     icon: <CalendarMonthIcon fontSize="small" />, defaultSize: { w: 4,  h: 8  }, minSize: { w: 3, h: 6 } },
-  { type: 'notes',      label: 'Notes',        icon: <StickyNote2Icon fontSize="small" />,   defaultSize: { w: 4,  h: 6  }, minSize: { w: 2, h: 4 } },
-  { type: 'links',      label: 'Quick Links',  icon: <LinkIcon fontSize="small" />,          defaultSize: { w: 4,  h: 8  }, minSize: { w: 2, h: 4 } },
-  { type: 'worldclock', label: 'World Clock',  icon: <PublicIcon fontSize="small" />,        defaultSize: { w: 4,  h: 8  }, minSize: { w: 3, h: 4 } },
-  { type: 'stocks',     label: 'Stocks',       icon: <TrendingUpIcon fontSize="small" />,    defaultSize: { w: 6,  h: 8  }, minSize: { w: 3, h: 6 } },
-  { type: 'ai',         label: 'Ask AI',       icon: <AutoAwesomeIcon fontSize="small" />,   defaultSize: { w: 6,  h: 8  }, minSize: { w: 3, h: 6 } },
-  { type: 'news',       label: 'News',         icon: <NewspaperIcon fontSize="small" />,     defaultSize: { w: 12, h: 12 }, minSize: { w: 4, h: 8 } },
+  { type: 'brand',      label: 'SmartBrowser', icon: <AutoAwesomeIcon fontSize="small" />,   defaultSize: { w: 8,  h: 4  }, minSize: { w: 1, h: 1 }, addable: false, singleton: true, removable: false, persistentId: 'w-brand' },
+  { type: 'header',     label: 'Section title',icon: <NewspaperIcon fontSize="small" />,     defaultSize: { w: 12, h: 2  }, minSize: { w: 1, h: 1 } },
+  { type: 'search',     label: 'Search',       icon: <SearchIcon fontSize="small" />,        defaultSize: { w: 20, h: 3  }, minSize: { w: 1, h: 1 } },
+  { type: 'aishortcuts',label: 'AI Shortcuts', icon: <SmartToyIcon fontSize="small" />,      defaultSize: { w: 20, h: 3  }, minSize: { w: 1, h: 1 } },
+  { type: 'apps',       label: 'Apps',         icon: <AppsIcon fontSize="small" />,          defaultSize: { w: 2,  h: 2  }, minSize: { w: 1, h: 1 } },
+  { type: 'clock',      label: 'Clock',        icon: <AccessTimeIcon fontSize="small" />,    defaultSize: { w: 6,  h: 4  }, minSize: { w: 1, h: 1 } },
+  { type: 'calendar',   label: 'Calendar',     icon: <CalendarMonthIcon fontSize="small" />, defaultSize: { w: 7,  h: 8  }, minSize: { w: 1, h: 1 } },
+  { type: 'notes',      label: 'Notes',        icon: <StickyNote2Icon fontSize="small" />,   defaultSize: { w: 7,  h: 6  }, minSize: { w: 1, h: 1 } },
+  { type: 'links',      label: 'Quick Links',  icon: <LinkIcon fontSize="small" />,          defaultSize: { w: 7,  h: 8  }, minSize: { w: 1, h: 1 } },
+  { type: 'worldclock', label: 'World Clock',  icon: <PublicIcon fontSize="small" />,        defaultSize: { w: 7,  h: 8  }, minSize: { w: 1, h: 1 } },
+  { type: 'stocks',     label: 'Stocks',       icon: <TrendingUpIcon fontSize="small" />,    defaultSize: { w: 10, h: 8  }, minSize: { w: 1, h: 1 } },
+  { type: 'ai',         label: 'Ask AI',       icon: <AutoAwesomeIcon fontSize="small" />,   defaultSize: { w: 10, h: 8  }, minSize: { w: 1, h: 1 } },
+  { type: 'news',       label: 'News',         icon: <NewspaperIcon fontSize="small" />,     defaultSize: { w: 20, h: 12 }, minSize: { w: 1, h: 1 } },
 ];
 const catalogFor = (type) => CATALOG.find((c) => c.type === type) || CATALOG[0];
 
-// Default starting dashboard. Each entry has an `id`, `type`, `config`, and a
-// `layout` rect { x, y, w, h } in grid cells. The 12-column grid lets us put
-// 3 small widgets across (4 cells each) or 2 medium (6 cells each).
-//
-// Layout is the home-page-as-dashboard order: search bar across the top,
-// AI shortcuts strip below, then the Apps launcher next to the existing
-// clock/stocks/etc.
+// Default starting dashboard, expressed in the 20-column grid. Each entry
+// has an `id`, `type`, `config`, and a `layout` rect { x, y, w, h }. The
+// brand widget is auto-injected (and locked) so it lives at the top of
+// the canvas as the home page's identity.
 const DEFAULTS = [
-  { id: 'w-search',     type: 'search',     config: {},                     layout: { x: 0, y: 0,  w: 12, h: 3  } },
-  { id: 'w-ai-shorts',  type: 'aishortcuts',config: {},                     layout: { x: 0, y: 3,  w: 12, h: 3  } },
-  { id: 'w-apps',       type: 'apps',       config: { suite: 'google' },    layout: { x: 0, y: 6,  w: 6,  h: 10 } },
-  { id: 'w-clock',      type: 'clock',      config: {},                     layout: { x: 6, y: 6,  w: 6,  h: 4  } },
-  { id: 'w-ai',         type: 'ai',         config: { service: 'chatgpt' }, layout: { x: 6, y: 10, w: 6,  h: 6  } },
-  { id: 'w-stocks',     type: 'stocks',     config: {},                     layout: { x: 0, y: 16, w: 6,  h: 8  } },
-  { id: 'w-calendar',   type: 'calendar',   config: {},                     layout: { x: 6, y: 16, w: 6,  h: 8  } },
-  { id: 'w-notes',      type: 'notes',      config: {},                     layout: { x: 0, y: 24, w: 4,  h: 6  } },
-  { id: 'w-news',       type: 'news',       config: { section: 'top' },     layout: { x: 4, y: 24, w: 8,  h: 12 } },
+  { id: 'w-brand',      type: 'brand',      config: {},                     layout: { x: 0,  y: 0,  w: 8,  h: 4  } },
+  { id: 'w-apps',       type: 'apps',       config: { suite: 'google' },    layout: { x: 8,  y: 0,  w: 2,  h: 2  } },
+  { id: 'w-clock',      type: 'clock',      config: {},                     layout: { x: 14, y: 0,  w: 6,  h: 4  } },
+  { id: 'w-hdr-board',  type: 'header',     config: { text: 'DASHBOARD' },  layout: { x: 0,  y: 4,  w: 20, h: 2  } },
+  { id: 'w-search',     type: 'search',     config: {},                     layout: { x: 0,  y: 6,  w: 20, h: 3  } },
+  { id: 'w-ai-shorts',  type: 'aishortcuts',config: {},                     layout: { x: 0,  y: 9,  w: 20, h: 3  } },
+  { id: 'w-hdr-tools',  type: 'header',     config: { text: 'OFFICE & STOCKS' }, layout: { x: 0, y: 12, w: 20, h: 2 } },
+  { id: 'w-ai',         type: 'ai',         config: { service: 'chatgpt' }, layout: { x: 0,  y: 14, w: 10, h: 8  } },
+  { id: 'w-stocks',     type: 'stocks',     config: {},                     layout: { x: 10, y: 14, w: 10, h: 8  } },
+  { id: 'w-calendar',   type: 'calendar',   config: {},                     layout: { x: 0,  y: 22, w: 7,  h: 8  } },
+  { id: 'w-notes',      type: 'notes',      config: {},                     layout: { x: 7,  y: 22, w: 6,  h: 8  } },
+  { id: 'w-hdr-news',   type: 'header',     config: { text: 'NEWS' },       layout: { x: 0,  y: 30, w: 20, h: 2  } },
+  { id: 'w-news',       type: 'news',       config: { section: 'top' },     layout: { x: 0,  y: 32, w: 20, h: 12 } },
 ];
 
 // Convert the user's saved widgets to the shape react-grid-layout wants.
@@ -102,23 +122,41 @@ function toLayoutArray(widgets) {
   });
 }
 
-// Add the three new "home-page-as-widgets" types (search / aishortcuts /
-// apps) to a user's existing layout without disturbing what they already
-// have. We push the existing widgets DOWN by the height of the new strip
-// so search/AI land at the top. Idempotent: if a type already exists the
-// user's instance is kept untouched.
+// Rescale every widget's x / w so its proportions are preserved when the
+// grid column count changes (v5→v6 migration AND the user-facing column
+// picker). Heights and y-positions are independent of column count so we
+// leave them alone.
+function rescaleCols(widgets, fromCols, toCols) {
+  if (!Array.isArray(widgets) || !fromCols || !toCols || fromCols === toCols) return widgets;
+  const ratio = toCols / fromCols;
+  return widgets.map((w) => {
+    if (!w.layout) return w;
+    const x = Math.max(0, Math.min(toCols - 1, Math.round((w.layout.x || 0) * ratio)));
+    let wCells = Math.max(1, Math.round((w.layout.w || 1) * ratio));
+    if (x + wCells > toCols) wCells = toCols - x;
+    if (wCells < 1) wCells = 1;
+    return { ...w, layout: { ...w.layout, x, w: wCells } };
+  });
+}
+
+// Make sure the layout contains every required ("essential") widget — the
+// brand wordmark singleton, plus the search / AI shortcuts / apps strip
+// the v5 release introduced. Idempotent: if a type already exists we
+// leave the user's instance alone. The brand is forced as the very first
+// row so it always reads as the page header.
 function addHomeEssentials(widgets) {
   const out = Array.isArray(widgets) ? [...widgets] : [];
   const has = (t) => out.some((w) => w.type === t);
   const missing = [];
-  if (!has('search'))      missing.push({ id: 'w-search',    type: 'search',      config: {},                  layout: { w: 12, h: 3  } });
-  if (!has('aishortcuts')) missing.push({ id: 'w-ai-shorts', type: 'aishortcuts', config: {},                  layout: { w: 12, h: 3  } });
-  if (!has('apps'))        missing.push({ id: 'w-apps',      type: 'apps',        config: { suite: 'google' }, layout: { w: 6,  h: 10 } });
+  if (!has('brand'))       missing.push({ id: 'w-brand',     type: 'brand',       config: {},                  layout: { w: 8,  h: 4  } });
+  if (!has('search'))      missing.push({ id: 'w-search',    type: 'search',      config: {},                  layout: { w: 20, h: 3  } });
+  if (!has('aishortcuts')) missing.push({ id: 'w-ai-shorts', type: 'aishortcuts', config: {},                  layout: { w: 20, h: 3  } });
+  if (!has('apps'))        missing.push({ id: 'w-apps',      type: 'apps',        config: { suite: 'google' }, layout: { w: 2,  h: 2  } });
   if (missing.length === 0) return out;
-  // Shift existing widgets down by the cumulative height of the new strip
-  // so the new ones land at the top of the grid. The Apps widget only
-  // takes half the width so it counts as a 0-row push.
-  const shift = (missing.find((m) => m.type === 'search') ? 3 : 0)
+  // Total y-rows the new strip occupies (brand: 4, search: 3, ai: 3, apps: 0
+  // because it tucks alongside brand).
+  const shift = (missing.find((m) => m.type === 'brand') ? 4 : 0)
+              + (missing.find((m) => m.type === 'search') ? 3 : 0)
               + (missing.find((m) => m.type === 'aishortcuts') ? 3 : 0);
   const shifted = out.map((w) => ({
     ...w,
@@ -128,10 +166,12 @@ function addHomeEssentials(widgets) {
   const prepended = [];
   for (const m of missing) {
     if (m.type === 'apps') {
-      // Apps is half-width, slot it next to existing content rather than on
-      // its own row — append it at the very bottom.
-      const maxY = Math.max(0, ...shifted.map((w) => (w.layout?.y || 0) + (w.layout?.h || 1)));
-      prepended.push({ ...m, layout: { x: 0, y: maxY, ...m.layout } });
+      // Slot the tiny apps icon next to brand (top-right corner of the
+      // header row) so it doesn't take its own row.
+      prepended.push({ ...m, layout: { x: 8, y: 0, ...m.layout } });
+    } else if (m.type === 'brand') {
+      prepended.push({ ...m, layout: { x: 0, y: 0, ...m.layout } });
+      y = Math.max(y, m.layout.h);
     } else {
       prepended.push({ ...m, layout: { x: 0, y, ...m.layout } });
       y += m.layout.h;
@@ -140,29 +180,61 @@ function addHomeEssentials(widgets) {
   return [...prepended, ...shifted];
 }
 
+// Brand is a singleton + non-removable. If somehow the user's stored layout
+// has multiple brands or none, normalise it: keep the first instance (or
+// inject a default one) and drop duplicates.
+function enforceSingletons(widgets) {
+  const out = [];
+  const seenSingleton = new Set();
+  for (const w of widgets) {
+    const meta = catalogFor(w.type);
+    if (meta?.singleton) {
+      if (seenSingleton.has(w.type)) continue;
+      seenSingleton.add(w.type);
+    }
+    out.push(w);
+  }
+  return out;
+}
+
 function loadWidgets() {
-  // 1. New v5 store — current canonical format.
+  // 1. v6 — current canonical format.
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length) return parsed;
+      if (Array.isArray(parsed) && parsed.length) {
+        return enforceSingletons(addHomeEssentials(parsed));
+      }
     }
   } catch {}
-  // 2. Migrate from v4: same shape, just add the new home-essential widgets
-  //    (search/AI/apps) on top of what the user already has.
+  // 2. Migrate from v5 (12-col grid): scale x/w out to the default 20 cols
+  //    and add the new brand essential.
   try {
-    const raw = localStorage.getItem(LEGACY_KEY_V4);
+    const raw = localStorage.getItem(LEGACY_KEY_V5);
     if (raw) {
-      const v4 = JSON.parse(raw) || [];
-      const migrated = addHomeEssentials(v4);
+      const v5 = JSON.parse(raw) || [];
+      const scaled = rescaleCols(v5, V5_REFERENCE_COLS, DEFAULT_GRID_COLS);
+      const migrated = enforceSingletons(addHomeEssentials(scaled));
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated)); } catch {}
       return migrated;
     }
   } catch {}
-  // 3. Migrate from v3 (same shape, but rowHeight was 80 px — double all `h`
+  // 3. Migrate from v4: same 12-col grid as v5, layer search/AI/apps/brand
+  //    essentials on top.
+  try {
+    const raw = localStorage.getItem(LEGACY_KEY_V4);
+    if (raw) {
+      const v4 = JSON.parse(raw) || [];
+      const scaled = rescaleCols(v4, V5_REFERENCE_COLS, DEFAULT_GRID_COLS);
+      const migrated = enforceSingletons(addHomeEssentials(scaled));
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated)); } catch {}
+      return migrated;
+    }
+  } catch {}
+  // 4. Migrate from v3 (same shape, but rowHeight was 80 px — double all `h`
   //    and `y` values so the layout looks identical with the new 40 px row),
-  //    then layer the v5 essentials on top.
+  //    then scale to 20 cols and layer essentials.
   try {
     const raw = localStorage.getItem(LEGACY_KEY_V3);
     if (raw) {
@@ -176,7 +248,8 @@ function loadWidgets() {
           h: (w.layout.h || 1) * 2,
         } : undefined,
       }));
-      const migrated = addHomeEssentials(v4ish);
+      const scaled = rescaleCols(v4ish, V5_REFERENCE_COLS, DEFAULT_GRID_COLS);
+      const migrated = enforceSingletons(addHomeEssentials(scaled));
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated)); } catch {}
       return migrated;
     }
@@ -206,19 +279,29 @@ function loadWidgets() {
         migrated.push({ id: 'w-news', type: 'news', config: { section: 'top' },
                         layout: { x: 0, y, w: 12, h: 6 } });
       }
-      return addHomeEssentials(migrated);
+      const scaled = rescaleCols(migrated, V5_REFERENCE_COLS, DEFAULT_GRID_COLS);
+      return enforceSingletons(addHomeEssentials(scaled));
     }
   } catch {}
   return DEFAULTS;
 }
 
+function loadGridCols() {
+  try {
+    const raw = localStorage.getItem(GRID_COLS_KEY);
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 4 && n <= 60) return Math.round(n);
+  } catch {}
+  return DEFAULT_GRID_COLS;
+}
+
 // Grid config — keep in sync with the CSS overrides below.
-const GRID_COLS    = 12;
 const ROW_HEIGHT   = 40;       // px per grid row — smaller = smoother resize
-const GRID_MARGIN  = 12;       // px between widgets (and around outer edges)
+const GRID_MARGIN  = 8;        // px between widgets (and around outer edges)
 
 export default function Widgets({ onOpen }) {
   const [widgets, setWidgets] = useState(loadWidgets);
+  const [gridCols, setGridColsState] = useState(loadGridCols);
   const [addAnchor, setAddAnchor] = useState(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const containerRef = React.useRef(null);
@@ -226,6 +309,22 @@ export default function Widgets({ onOpen }) {
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(widgets)); } catch {}
   }, [widgets]);
+
+  useEffect(() => {
+    try { localStorage.setItem(GRID_COLS_KEY, String(gridCols)); } catch {}
+  }, [gridCols]);
+
+  // When the user picks a new grid column count, rescale every widget so
+  // its proportional position/width is preserved instead of staying anchored
+  // to the same absolute cell index (which would look broken on more / fewer
+  // columns). Heights/y are untouched.
+  const setGridCols = (next) => {
+    setGridColsState((prev) => {
+      if (prev === next) return prev;
+      setWidgets((all) => rescaleCols(all, prev, next));
+      return next;
+    });
+  };
 
   // Measure available width so the grid can lay out at the right pixel size.
   useEffect(() => {
@@ -248,17 +347,27 @@ export default function Widgets({ onOpen }) {
 
   const addWidget = (type) => {
     const meta = catalogFor(type);
+    setAddAnchor(null);
+    // Singletons get a fixed id and may not be added more than once.
+    if (meta.singleton && widgets.some((w) => w.type === type)) return;
+    let initialConfig = {};
+    if (type === 'news')   initialConfig = { section: 'top' };
+    if (type === 'apps')   initialConfig = { suite: 'google' };
+    if (type === 'header') initialConfig = { text: 'NEW SECTION' };
+    const id = meta.persistentId || `w-${type}-${Date.now()}`;
+    // Clamp default w to current grid width so 20-col defaults don't
+    // overflow when the user is on an 8-col grid.
+    const w = Math.min(meta.defaultSize.w, gridCols);
     setWidgets((prev) => [
       ...prev,
-      {
-        id: `w-${type}-${Date.now()}`,
-        type, config: type === 'news' ? { section: 'top' } : {},
-        layout: { x: 0, y: nextDropY(prev), w: meta.defaultSize.w, h: meta.defaultSize.h },
-      },
+      { id, type, config: initialConfig, layout: { x: 0, y: nextDropY(prev), w, h: meta.defaultSize.h } },
     ]);
-    setAddAnchor(null);
   };
-  const removeWidget = (id) => setWidgets((prev) => prev.filter((w) => w.id !== id));
+  const removeWidget = (id) => setWidgets((prev) => prev.filter((w) => {
+    if (w.id !== id) return true;
+    const meta = catalogFor(w.type);
+    return meta?.removable === false;   // keep non-removable widgets in the list
+  }));
   const updateConfig = (id, patch) =>
     setWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, config: { ...w.config, ...patch } } : w)));
 
@@ -278,15 +387,24 @@ export default function Widgets({ onOpen }) {
 
   return (
     <Box sx={{ width: 'min(1280px, 96vw)', mt: 2 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5 }}>
-        <Typography sx={{ fontFamily: MONO, fontSize: 12, letterSpacing: 3, textTransform: 'uppercase',
-          color: '#9aa3c7', display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT }} />
-          Dashboard
-          <Typography component="span" sx={{ ml: 1.5, fontSize: 10, color: '#5b6385', letterSpacing: 1 }}>
-            — grab the dotted handle to move, drag the red corner or side pills to resize
-          </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5, gap: 1 }}>
+        <Typography component="div" sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, textTransform: 'uppercase',
+          color: '#5b6385', display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+          drag the dotted handle to move · grab any side/corner pill to resize · min size 1×1
         </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 1, color: '#5b6385' }}>GRID</Typography>
+          <Select
+            value={gridCols} onChange={(e) => setGridCols(Number(e.target.value))}
+            variant="standard" disableUnderline
+            sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 1, color: ACCENT,
+              '& .MuiSelect-icon': { color: ACCENT } }}
+          >
+            {GRID_COL_OPTIONS.map((n) => (
+              <MenuItem key={n} value={n} sx={{ fontFamily: MONO, fontSize: 12 }}>{n} cols</MenuItem>
+            ))}
+          </Select>
+        </Box>
         <Button
           size="small" startIcon={<AddIcon />}
           onClick={(e) => setAddAnchor(e.currentTarget)}
@@ -295,7 +413,7 @@ export default function Widgets({ onOpen }) {
           Add widget
         </Button>
         <Menu anchorEl={addAnchor} open={!!addAnchor} onClose={() => setAddAnchor(null)}>
-          {CATALOG.map((c) => (
+          {CATALOG.filter((c) => c.addable !== false).map((c) => (
             <MenuItem key={c.type} onClick={() => addWidget(c.type)}
               sx={{ gap: 1.2, fontFamily: MONO, fontSize: 13 }}>
               {c.icon}{c.label}
@@ -305,7 +423,9 @@ export default function Widgets({ onOpen }) {
       </Box>
 
       {/* Local CSS overrides for react-grid-layout to match our dark theme.
-          The placeholder is the ghost block shown while dragging/resizing. */}
+          The placeholder is the ghost block shown while dragging/resizing.
+          All 8 resize handles are styled as semi-transparent pills that
+          turn red on hover so the user knows every side is grabbable. */}
       <Box ref={containerRef} sx={{
         '& .react-grid-item.react-grid-placeholder': {
           background: 'rgba(214,69,61,0.18) !important',
@@ -313,33 +433,40 @@ export default function Widgets({ onOpen }) {
           borderRadius: '4px', opacity: '1 !important',
         },
         '& .react-grid-item > .react-resizable-handle': {
-          backgroundImage: 'none',                    // wipe react-resizable's PNG
-          opacity: 0.45,
+          backgroundImage: 'none',
+          opacity: 0.35,
           transition: 'opacity 120ms ease, background 120ms ease',
         },
-        '& .react-grid-item:hover > .react-resizable-handle': { opacity: 1 },
-        // South-east corner: a chunky red triangle so the user can't miss it.
-        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-se': {
-          width: 22, height: 22, right: 2, bottom: 2,
-          borderRight:  `3px solid ${ACCENT}`,
-          borderBottom: `3px solid ${ACCENT}`,
-          borderBottomRightRadius: 4,
+        // Corners: small filled squares anchored to the corners.
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-se,\
+           & .react-grid-item > .react-resizable-handle.react-resizable-handle-sw,\
+           & .react-grid-item > .react-resizable-handle.react-resizable-handle-ne,\
+           & .react-grid-item > .react-resizable-handle.react-resizable-handle-nw': {
+          width: 14, height: 14, background: 'rgba(255,255,255,0.18)',
+          borderRadius: 2,
         },
-        // East edge: vertical pill in the middle of the right border.
-        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-e': {
-          width: 6, height: 36, right: 0, top: '50%', transform: 'translateY(-50%)',
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-se': { right: 1, bottom: 1, cursor: 'nwse-resize' },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-sw': { left:  1, bottom: 1, cursor: 'nesw-resize' },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-ne': { right: 1, top:    1, cursor: 'nesw-resize' },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-nw': { left:  1, top:    1, cursor: 'nwse-resize' },
+        // Edges: thin pills centered along each side.
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-e,\
+           & .react-grid-item > .react-resizable-handle.react-resizable-handle-w': {
+          width: 5, height: 28, top: '50%', transform: 'translateY(-50%)',
           background: 'rgba(255,255,255,0.18)', borderRadius: 3,
-          cursor: 'ew-resize',
         },
-        // South edge: horizontal pill in the middle of the bottom border.
-        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-s': {
-          width: 36, height: 6, left: '50%', bottom: 0, transform: 'translateX(-50%)',
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-e': { right: 0, cursor: 'ew-resize' },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-w': { left:  0, cursor: 'ew-resize' },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-s,\
+           & .react-grid-item > .react-resizable-handle.react-resizable-handle-n': {
+          width: 28, height: 5, left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(255,255,255,0.18)', borderRadius: 3,
-          cursor: 'ns-resize',
         },
-        '& .react-grid-item:hover > .react-resizable-handle.react-resizable-handle-e, & .react-grid-item:hover > .react-resizable-handle.react-resizable-handle-s': {
-          background: ACCENT,
-        },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-s': { bottom: 0, cursor: 'ns-resize' },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-n': { top:    0, cursor: 'ns-resize' },
+        // On hover: surface every handle and glow it red so the user knows
+        // they can drag from any side or corner.
+        '& .react-grid-item:hover > .react-resizable-handle': { opacity: 1, background: ACCENT },
         '& .react-draggable-dragging': { cursor: 'grabbing !important', zIndex: 10 },
         '& .react-grid-item.resizing':  { zIndex: 10, opacity: 0.95 },
       }}>
@@ -347,7 +474,7 @@ export default function Widgets({ onOpen }) {
           <GridLayout
             className="sb-grid"
             layout={layout}
-            cols={GRID_COLS}
+            cols={gridCols}
             rowHeight={ROW_HEIGHT}
             width={containerWidth}
             margin={[GRID_MARGIN, GRID_MARGIN]}
@@ -356,7 +483,7 @@ export default function Widgets({ onOpen }) {
             compactType="vertical"
             preventCollision={false}
             isBounded={false}
-            resizeHandles={['se', 'e', 's']}
+            resizeHandles={['s', 'w', 'e', 'n', 'sw', 'nw', 'se', 'ne']}
             onLayoutChange={onLayoutChange}
           >
             {widgets.map((w) => (
@@ -378,30 +505,24 @@ export default function Widgets({ onOpen }) {
 
 function WidgetFrame({ widget, onRemove, onConfig, onOpen }) {
   const meta = catalogFor(widget.type);
-  return (
-    <Box sx={{
-      height: '100%', width: '100%', display: 'flex', flexDirection: 'column',
-      p: 1.25, borderRadius: '4px',
-      background: SURFACE,
-      border: `1px solid ${LINE}`,
-      backgroundImage: 'radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)',
-      backgroundSize: '14px 14px',
-      transition: 'border-color 140ms ease',
-      '&:hover': { borderColor: 'rgba(255,255,255,0.22)' },
-      '&:hover .wgt-controls': { opacity: 1 },
+  // Brand + header widgets are "chromeless" — they own their entire frame
+  // and don't show our standard title bar. The frame still has to host
+  // the drag handle (so the user can move them) but it's an overlay, not
+  // a strip at the top, so the widget content can use the full space.
+  const chromeless = widget.type === 'brand' || widget.type === 'header';
+
+  const headerStrip = (
+    <Box className="sb-drag-handle" sx={{
+      display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75,
+      cursor: 'grab', userSelect: 'none',
     }}>
-      {/* Header is the drag handle — only this strip starts a drag, so
-          inputs and buttons inside the widget body stay fully interactive. */}
-      <Box className="sb-drag-handle" sx={{
-        display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75,
-        cursor: 'grab', userSelect: 'none',
-      }}>
-        <DragIndicatorIcon sx={{ fontSize: 14, color: '#5b6385' }} />
-        <Box sx={{ color: ACCENT, display: 'flex', '& svg': { fontSize: 15 } }}>{meta.icon}</Box>
-        <Typography sx={{ flex: 1, fontFamily: MONO, fontSize: 10, letterSpacing: 2,
-          textTransform: 'uppercase', color: '#9aa3c7' }}>
-          {meta.label}
-        </Typography>
+      <DragIndicatorIcon sx={{ fontSize: 14, color: '#5b6385' }} />
+      <Box sx={{ color: ACCENT, display: 'flex', '& svg': { fontSize: 15 } }}>{meta.icon}</Box>
+      <Typography sx={{ flex: 1, fontFamily: MONO, fontSize: 10, letterSpacing: 2,
+        textTransform: 'uppercase', color: '#9aa3c7' }}>
+        {meta.label}
+      </Typography>
+      {meta.removable !== false && (
         <Box className="wgt-controls" sx={{ display: 'flex', opacity: 0, transition: 'opacity 140ms ease' }}>
           <Tooltip title="Remove">
             <IconButton size="small" onClick={onRemove}
@@ -412,8 +533,57 @@ function WidgetFrame({ widget, onRemove, onConfig, onOpen }) {
             </IconButton>
           </Tooltip>
         </Box>
-      </Box>
+      )}
+    </Box>
+  );
+
+  // Chromeless frames get a small drag-handle overlay in the top-left
+  // corner that only appears on hover, instead of the full title strip.
+  const overlayHandle = (
+    <Box
+      className="sb-drag-handle wgt-controls"
+      sx={{
+        position: 'absolute', top: 2, left: 2, zIndex: 2,
+        display: 'flex', alignItems: 'center', gap: 0.25,
+        px: 0.5, py: 0.25, borderRadius: 1,
+        background: 'rgba(8,9,14,0.7)',
+        cursor: 'grab', userSelect: 'none',
+        opacity: 0, transition: 'opacity 140ms ease',
+        border: `1px solid ${LINE}`,
+      }}>
+      <DragIndicatorIcon sx={{ fontSize: 12, color: '#5b6385' }} />
+      {meta.removable !== false && (
+        <IconButton size="small" onClick={onRemove}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          sx={{ p: 0.25 }}
+        >
+          <CloseIcon sx={{ fontSize: 12 }} />
+        </IconButton>
+      )}
+    </Box>
+  );
+
+  return (
+    <Box sx={{
+      position: 'relative',
+      height: '100%', width: '100%', display: 'flex', flexDirection: 'column',
+      p: chromeless ? 0.5 : 1.25, borderRadius: '4px',
+      background: chromeless ? 'transparent' : SURFACE,
+      border: chromeless ? '1px solid transparent' : `1px solid ${LINE}`,
+      backgroundImage: chromeless ? 'none' : 'radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)',
+      backgroundSize: '14px 14px',
+      transition: 'border-color 140ms ease, background 140ms ease',
+      '&:hover': {
+        borderColor: chromeless ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
+        background: chromeless ? 'rgba(8,9,14,0.35)' : SURFACE,
+      },
+      '&:hover .wgt-controls': { opacity: 1 },
+    }}>
+      {chromeless ? overlayHandle : headerStrip}
       <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        {widget.type === 'brand' && <BrandWidget layout={widget.layout} />}
+        {widget.type === 'header' && <HeaderWidget config={widget.config} onConfig={onConfig} layout={widget.layout} />}
         {widget.type === 'search' && <SearchWidget onOpen={onOpen} />}
         {widget.type === 'aishortcuts' && <AiShortcutsWidget onOpen={onOpen} />}
         {widget.type === 'apps' && <AppsWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
@@ -426,6 +596,87 @@ function WidgetFrame({ widget, onRemove, onConfig, onOpen }) {
         {widget.type === 'ai' && <AiWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
         {widget.type === 'news' && <NewsFeed onOpen={onOpen} compact />}
       </Box>
+    </Box>
+  );
+}
+
+// ===========================================================================
+// BrandWidget — the SmartBrowser wordmark, made placeable + resizable. Auto-
+// sizes its typography to fit the widget's actual pixel size so it looks
+// crisp whether it's a tiny 1×1 tile or a hero 12×8 banner.
+// ===========================================================================
+function BrandWidget({ layout }) {
+  // Estimate widget pixel height from layout.h (40px row height + 8px gutters)
+  // so we can drop / shrink the tagline as the widget gets smaller.
+  const cells = (layout?.h || 4);
+  const px = cells * 40 + (cells - 1) * 8;
+  const big = px >= 110;
+  const showTagline = px >= 80;
+  return (
+    <Box sx={{
+      width: '100%', height: '100%',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <Typography sx={{
+        fontWeight: 800, letterSpacing: -1.0, textAlign: 'center', lineHeight: 1,
+        fontSize: big ? 'clamp(28px, 5.5vw, 60px)' : 'clamp(16px, 3.5vw, 30px)',
+        background: 'linear-gradient(90deg,#7aa2ff,#a78bfa,#34d399)',
+        WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+      }}>
+        Smart<span style={{ fontWeight: 400 }}>Browser</span>
+      </Typography>
+      {showTagline && (
+        <Typography sx={{
+          display: 'block', textAlign: 'center', mt: 0.5,
+          color: '#9aa3c7', fontFamily: MONO, fontSize: big ? 11 : 9,
+          letterSpacing: 2, textTransform: 'uppercase',
+        }}>
+          Private · Masked · Free
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
+// ===========================================================================
+// HeaderWidget — a section label that can be edited inline. The user can
+// add multiple of these to title different zones of the dashboard
+// ("DASHBOARD", "OFFICE", "GAMES", "NEWS"). Typography scales with the
+// widget height so a tall instance reads like a hero, a tiny one like a
+// caption.
+// ===========================================================================
+function HeaderWidget({ config, onConfig, layout }) {
+  const text = (config.text ?? 'NEW SECTION');
+  const cells = (layout?.h || 2);
+  const px = cells * 40 + (cells - 1) * 8;
+  const big = px >= 80;
+  const handleChange = (e) => {
+    const val = e.currentTarget.textContent || '';
+    onConfig({ text: val });
+  };
+  return (
+    <Box
+      contentEditable
+      suppressContentEditableWarning
+      spellCheck={false}
+      onBlur={handleChange}
+      // Prevent newline → users can't drop a multi-line headline.
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+      sx={{
+        width: '100%', height: '100%',
+        display: 'flex', alignItems: 'center', gap: 1, px: 1,
+        cursor: 'text', outline: 'none',
+        '&:focus': { background: 'rgba(255,255,255,0.03)', borderRadius: 1 },
+      }}
+    >
+      <Box component="span" sx={{ width: big ? 8 : 6, height: big ? 8 : 6, borderRadius: '50%',
+        background: ACCENT, flexShrink: 0 }} />
+      <Box component="span" sx={{
+        fontFamily: MONO, color: '#cdd3ee',
+        fontSize: big ? 'clamp(14px, 1.6vw, 22px)' : 'clamp(11px, 1.1vw, 14px)',
+        letterSpacing: big ? 4 : 3, textTransform: 'uppercase',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+      }}>{text}</Box>
     </Box>
   );
 }
@@ -1329,74 +1580,165 @@ const SUITES = {
       { id: 'copilot',  label: 'Copilot',    url: 'https://copilot.microsoft.com/',            color: '#00a4ef' },
     ],
   },
+  // Mobile-first apps that have decent web versions. These are the launchers
+  // most users actually open on their phone homescreens, mirrored back into
+  // the browser so the launcher widget can replace a tab strip of pinned
+  // sites.
+  mobile: {
+    label: 'Mobile',
+    accent: '#34d399',
+    apps: [
+      { id: 'whatsapp',  label: 'WhatsApp',  url: 'https://web.whatsapp.com/',           color: '#25d366' },
+      { id: 'instagram', label: 'Instagram', url: 'https://www.instagram.com/',          color: '#e1306c' },
+      { id: 'telegram',  label: 'Telegram',  url: 'https://web.telegram.org/',           color: '#229ed9' },
+      { id: 'messenger', label: 'Messenger', url: 'https://www.messenger.com/',          color: '#00b2ff' },
+      { id: 'x',         label: 'X',         url: 'https://x.com/',                      color: '#000000' },
+      { id: 'tiktok',    label: 'TikTok',    url: 'https://www.tiktok.com/',             color: '#ff0050' },
+      { id: 'snap',      label: 'Snapchat',  url: 'https://web.snapchat.com/',           color: '#fffc00' },
+      { id: 'spotify',   label: 'Spotify',   url: 'https://open.spotify.com/',           color: '#1db954' },
+      { id: 'netflix',   label: 'Netflix',   url: 'https://www.netflix.com/',            color: '#e50914' },
+      { id: 'discord',   label: 'Discord',   url: 'https://discord.com/app',             color: '#5865f2' },
+      { id: 'reddit',    label: 'Reddit',    url: 'https://www.reddit.com/',             color: '#ff4500' },
+      { id: 'uber',      label: 'Uber',      url: 'https://m.uber.com/',                 color: '#000000' },
+      { id: 'pinterest', label: 'Pinterest', url: 'https://www.pinterest.com/',          color: '#e60023' },
+      { id: 'linkedin',  label: 'LinkedIn',  url: 'https://www.linkedin.com/',           color: '#0a66c2' },
+      { id: 'maps2',     label: 'Maps',      url: 'https://maps.google.com/',            color: '#ea4335' },
+      { id: 'twitch',    label: 'Twitch',    url: 'https://www.twitch.tv/',              color: '#9146ff' },
+    ],
+  },
 };
+const SUITE_ORDER = ['google', 'microsoft', 'mobile'];
 
+// AppsWidget — collapsed to a single "apps" tile by default (so it lives
+// happily in a 1×1 grid cell). Clicking the tile opens a popover with the
+// full launcher: a suite cycle button (Google ↔ Microsoft ↔ Mobile) on top,
+// app tiles below. The popover holds focus so the widget itself stays
+// minimal even when the user is browsing apps.
 function AppsWidget({ config, onConfig, onOpen }) {
-  const suiteKey = config.suite === 'microsoft' ? 'microsoft' : 'google';
+  const suiteKey = SUITE_ORDER.includes(config.suite) ? config.suite : 'google';
   const suite = SUITES[suiteKey];
-  const toggleTo = suiteKey === 'google' ? 'microsoft' : 'google';
+  const nextSuiteIdx = (SUITE_ORDER.indexOf(suiteKey) + 1) % SUITE_ORDER.length;
+  const nextSuite = SUITE_ORDER[nextSuiteIdx];
+  const [anchorEl, setAnchorEl] = useState(null);
+  const open = Boolean(anchorEl);
+  const close = () => setAnchorEl(null);
+  const launch = (url) => { close(); onOpen(url); };
+
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
-      {/* Header: suite toggle (acts like Edge's "Microsoft 365" pill). */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-        <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 2, color: '#9aa3c7',
-          textTransform: 'uppercase' }}>
-          {suite.label} Apps
-        </Typography>
-        <Box
-          onClick={() => onConfig({ suite: toggleTo })}
-          sx={{
-            display: 'inline-flex', alignItems: 'center', gap: 0.5, cursor: 'pointer',
-            px: 1, py: 0.4, borderRadius: 999,
-            fontFamily: MONO, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase',
-            color: '#e6e9f5',
-            background: 'rgba(255,255,255,0.05)',
-            border: `1px solid ${SUITES[toggleTo].accent}88`,
-            transition: 'background 140ms ease',
-            '&:hover': { background: `${SUITES[toggleTo].accent}22` },
-          }}
-        >
-          Switch to {SUITES[toggleTo].label}
+    <Box sx={{
+      height: '100%', width: '100%',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0,
+    }}>
+      {/* Collapsed icon — also acts as the popover anchor. The 3x3 dot grid
+          is the universally understood "apps" glyph (Google waffle / iOS
+          launcher). */}
+      <Box
+        onClick={(e) => setAnchorEl(e.currentTarget)}
+        sx={{
+          width: '100%', height: '100%', minHeight: 0,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          gap: 0.5, cursor: 'pointer', borderRadius: 1.25,
+          background: 'rgba(255,255,255,0.03)',
+          border: `1px solid ${open ? suite.accent : LINE}`,
+          transition: 'all 140ms ease',
+          '&:hover': { borderColor: `${suite.accent}66`, background: `${suite.accent}10` },
+        }}
+        title={`${suite.label} apps`}
+      >
+        <Box sx={{
+          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0.4,
+          width: 22, height: 22,
+        }}>
+          {Array.from({ length: 9 }).map((_, i) => (
+            <Box key={i} sx={{ width: '100%', height: '100%', borderRadius: '50%',
+              background: suite.accent, opacity: 0.85 }} />
+          ))}
         </Box>
+        <Typography sx={{ fontFamily: MONO, fontSize: 9, letterSpacing: 1, color: '#9aa3c7',
+          textTransform: 'uppercase', maxWidth: '100%',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {suite.label}
+        </Typography>
       </Box>
-      {/* Tile grid — auto-fits as the widget is resized. minmax keeps tiles
-          at a reasonable touch size even on small widgets. */}
-      <Box sx={{
-        flex: 1, overflow: 'auto', minHeight: 0,
-        display: 'grid', gap: 1,
-        gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))',
-        alignContent: 'start',
-      }}>
-        {suite.apps.map((app) => (
+
+      <Popover
+        open={open} anchorEl={anchorEl} onClose={close}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        // Stop the popover paper from inheriting the widget's drag handle so
+        // clicking inside doesn't start a drag through the grid item.
+        PaperProps={{
+          onMouseDown: (e) => e.stopPropagation(),
+          sx: {
+            mt: 0.5, p: 1.25, minWidth: 280, maxWidth: 360,
+            background: 'rgba(8,9,14,0.96)',
+            border: `1px solid ${suite.accent}55`,
+            borderRadius: 1.5,
+            backdropFilter: 'blur(8px)',
+            backgroundImage: 'radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)',
+            backgroundSize: '14px 14px',
+          },
+        }}
+      >
+        {/* Suite toggle row — cycles Google → Microsoft → Mobile → Google. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
+          <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 2, color: '#9aa3c7',
+            textTransform: 'uppercase' }}>
+            {suite.label} Apps
+          </Typography>
           <Box
-            key={app.id}
-            onClick={() => onOpen(app.url)}
-            title={app.label}
+            onClick={() => onConfig({ suite: nextSuite })}
             sx={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              gap: 0.5, py: 1, px: 0.5, borderRadius: 1, cursor: 'pointer',
-              background: 'rgba(255,255,255,0.03)',
-              border: `1px solid ${LINE}`,
-              transition: 'all 140ms ease',
-              '&:hover': { background: `${app.color}1a`, borderColor: `${app.color}66`, transform: 'translateY(-1px)' },
+              display: 'inline-flex', alignItems: 'center', gap: 0.5, cursor: 'pointer',
+              px: 1, py: 0.4, borderRadius: 999,
+              fontFamily: MONO, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase',
+              color: '#e6e9f5',
+              background: 'rgba(255,255,255,0.05)',
+              border: `1px solid ${SUITES[nextSuite].accent}88`,
+              transition: 'background 140ms ease',
+              '&:hover': { background: `${SUITES[nextSuite].accent}22` },
             }}
           >
-            <Box sx={{
-              width: 28, height: 28, borderRadius: 0.75,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: app.color, color: '#fff',
-              fontFamily: MONO, fontWeight: 700, fontSize: 12,
-            }}>
-              {app.label.slice(0, 1).toUpperCase()}
-            </Box>
-            <Typography sx={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: 0.5, color: '#cdd3ee',
-              textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              maxWidth: '100%' }}>
-              {app.label}
-            </Typography>
+            ↻ {SUITES[nextSuite].label}
           </Box>
-        ))}
-      </Box>
+        </Box>
+
+        {/* Tile grid — auto-fits with comfortable touch targets. */}
+        <Box sx={{
+          display: 'grid', gap: 0.75,
+          gridTemplateColumns: 'repeat(4, 1fr)',
+        }}>
+          {suite.apps.map((app) => (
+            <Box
+              key={app.id}
+              onClick={() => launch(app.url)}
+              title={app.label}
+              sx={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                gap: 0.5, py: 1, px: 0.5, borderRadius: 1, cursor: 'pointer',
+                background: 'rgba(255,255,255,0.03)',
+                border: `1px solid ${LINE}`,
+                transition: 'all 140ms ease',
+                '&:hover': { background: `${app.color}1a`, borderColor: `${app.color}66`, transform: 'translateY(-1px)' },
+              }}
+            >
+              <Box sx={{
+                width: 30, height: 30, borderRadius: 0.75,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: app.color, color: '#fff',
+                fontFamily: MONO, fontWeight: 700, fontSize: 13,
+              }}>
+                {app.label.slice(0, 1).toUpperCase()}
+              </Box>
+              <Typography sx={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: 0.5, color: '#cdd3ee',
+                textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                maxWidth: '100%' }}>
+                {app.label}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      </Popover>
     </Box>
   );
 }

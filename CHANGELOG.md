@@ -8,6 +8,108 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.31] - 2026-05-29
+
+### Changed — Home page is now a true grid editor (20 cols, 1×1 min, 8-way resize)
+
+The widget dashboard graduated from a 12-column rough layout to a real
+grid editor. Every change in this release is in service of the user's
+goal: drop widgets anywhere, at any size, give them any title.
+
+- **Default grid is now 20 columns** (was 12). The dashboard header has
+  a `GRID 20 cols ▾` dropdown with 8 / 12 / 16 / 20 / 24 / 30 options.
+  Switching column count auto-rescales every widget's x/width so
+  proportions are preserved — your layout doesn't shatter when you
+  pick a denser grid.
+- **Minimum widget size is now 1×1** for every widget type. Drag any
+  side or corner pill in until the widget collapses to a single cell.
+  Some widgets aren't useful that small (a 1×1 news feed shows
+  nothing), but the option is there — and the Apps widget is now
+  *designed* for it.
+- **Resize from every side and every corner.** All eight handles
+  (N / S / E / W / NE / NW / SE / SW) are wired and styled as
+  semi-transparent pills that glow red on hover. The old "drag the
+  red corner or side pills to resize" hint is now true on all eight
+  edges.
+
+### Added — SmartBrowser wordmark is now a widget
+
+The `SmartBrowser · Private · Masked · Free` wordmark at the top of the
+home page is a real, placeable widget called **Brand**. It's a
+singleton (auto-injected once, deduped if it gets duplicated) and
+**not removable** — but it's resizable like everything else and you
+can drag it anywhere. The typography auto-scales: tiny tiles render
+just "SmartBrowser", taller ones add the tagline.
+
+### Added — Editable section headers
+
+The "DASHBOARD" caption above the grid is now a real widget too,
+called **Section title**. Click into it to edit the text inline; the
+typography scales with the widget's height. Add as many as you want
+from the Add Widget menu — one for "DASHBOARD", one for "OFFICE",
+one for "GAMES", one for "WATCHING", whatever. Custom text persists
+per widget instance.
+
+### Changed — Apps widget is collapsed by default, opens as a popover
+
+The Apps widget that used to fill a whole tile grid is now a single
+1×1 tile showing the universal "apps waffle" (3×3 dot grid). Click it
+to open a floating popover with the full launcher: suite name + a
+**Switch to Google / Microsoft / Mobile** cycle button on top, app
+tiles below. Each instance remembers which suite it was last on, so
+you can park a Google launcher in one corner and a Microsoft launcher
+in another.
+
+### Added — Mobile suite (3rd toggle option for Apps)
+
+The Google / Microsoft toggle now cycles through a third suite,
+**Mobile**, with the apps people actually live in on their phones:
+WhatsApp Web, Instagram, Telegram, Messenger, X, TikTok, Snapchat,
+Spotify, Netflix, Discord, Reddit, Uber, Pinterest, LinkedIn, Maps,
+Twitch. Clicking any tile opens the app's web UI in a new tab — your
+existing logins carry through via the shared session.
+
+### How upgrades behave
+
+- Stored layout is bumped from `widgets.v5` → `widgets.v6`.
+- v5→v6 migration **scales** every widget's x/w from a 12-col baseline
+  to your selected column count (defaults to 20). Heights and y are
+  untouched.
+- The brand widget is **auto-injected** at the top-left of your grid
+  the first time you open v1.0.31. Your previous widgets are pushed
+  down a few rows so nothing gets covered or wiped.
+- Singleton enforcement: if you somehow end up with multiple brand
+  widgets in storage, the extras are dropped on load.
+
+### Files changed
+
+- `frontend/src/components/Widgets.jsx`
+  - `CATALOG` rewritten: every entry now has `minSize: { w: 1, h: 1 }`.
+    Added `brand` and `header` types with `addable`, `singleton`,
+    `removable`, `persistentId` flags.
+  - `DEFAULTS` re-laid out for the 20-col grid, including the brand
+    widget plus three section headers ("DASHBOARD", "OFFICE & STOCKS",
+    "NEWS") to demonstrate the pattern.
+  - New `rescaleCols()` + `enforceSingletons()` helpers. `loadWidgets`
+    now does explicit v5/v4/v3/v2 migrations and always runs the result
+    through `addHomeEssentials` + `enforceSingletons`.
+  - `gridCols` state + `setGridCols()` that auto-rescales every widget
+    when the user picks a different column count.
+  - `GridLayout` `cols` made dynamic; `resizeHandles` now lists all 8
+    sides; CSS overrides style all 8 handles (corners as 14×14
+    squares, edges as centered pills).
+  - `SUITES` extended with `mobile` (16 apps). `SUITE_ORDER` cycles
+    Google → Microsoft → Mobile → Google.
+  - `AppsWidget` rewritten as a collapsed launcher tile + `Popover`
+    with the full tile grid and suite cycle button.
+  - New `BrandWidget` and `HeaderWidget` components, both with
+    chromeless `WidgetFrame` handling (overlay drag handle instead
+    of a title bar) so they render flush.
+  - Dashboard header redesigned: hint text on the left, `GRID N cols`
+    picker in the middle, `Add widget` button on the right.
+- `frontend/src/components/HomePage.jsx` — wordmark removed (it's
+  now the brand widget); the page is just `Favorites` + `Widgets`.
+
 ## [v1.0.30] - 2026-05-29
 
 ### Added — Home page is now fully widgetized (search + AI + Google/Microsoft apps)
