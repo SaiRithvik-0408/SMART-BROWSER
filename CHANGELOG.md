@@ -38,10 +38,19 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ### Fixed
 
-- **Auto-updater shows a visible console window on Windows 11**: the helper
-  is now launched via a tiny `.vbs` wrapper (`WScript.Shell.Run … 0`), the
-  only reliable way to suppress the console window when Windows Terminal hosts
-  cmd. Node's `windowsHide: true` is ignored in that case.
+- **Auto-updater STILL showed a console window (round 2)**: the previous
+  fix used a VBS wrapper to hide the initial cmd launch, but every
+  `tasklist | find` iteration inside the cmd wait-loop re-flashed through
+  Windows Terminal, and closing that window aborted the install entirely.
+  The helper has now been rewritten as a pure VBS script — process polling
+  uses WMI (`Win32_Process`) in-process, the installer is invoked via
+  `WScript.Shell.Run … 0`, and `wscript.exe` has no console at all. After
+  the wait-loop expires the script also force-terminates any lingering
+  Electron helper processes via WMI so the installer isn't blocked by
+  file locks. End to end: zero visible windows.
+- **Auto-updater shows a visible console window on Windows 11** (round 1):
+  the helper was launched via a tiny `.vbs` wrapper (`WScript.Shell.Run … 0`).
+  Insufficient — see above.
 - **Auto-updater wait-loop could hang forever**: capped at 30 seconds and
   proceeds to install regardless. Electron spawns multiple helper processes
   that share the `SmartBrowser.exe` name; a lingering renderer would
