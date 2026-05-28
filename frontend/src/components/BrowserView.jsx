@@ -6,6 +6,7 @@ import HistoryPage from './HistoryPage';
 import DownloadsPage from './DownloadsPage';
 import SettingsPage from './SettingsPage';
 import PasswordsPage from './PasswordsPage';
+import ExtensionsPage from './ExtensionsPage';
 
 const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 const inElectron = !!api?.isElectron;
@@ -13,11 +14,12 @@ const inElectron = !!api?.isElectron;
 // Internal URL scheme — renders a React page in-tab instead of loading a
 // native WebContentsView. Keep in sync with the menu in TopBar.
 const INTERNAL_PAGES = {
-  'smartbrowser://home':      'home',
-  'smartbrowser://history':   'history',
-  'smartbrowser://downloads': 'downloads',
-  'smartbrowser://settings':  'settings',
-  'smartbrowser://passwords': 'passwords',
+  'smartbrowser://home':       'home',
+  'smartbrowser://history':    'history',
+  'smartbrowser://downloads':  'downloads',
+  'smartbrowser://settings':   'settings',
+  'smartbrowser://passwords':  'passwords',
+  'smartbrowser://extensions': 'extensions',
 };
 function internalKey(url) {
   if (!url || url === 'home') return 'home';
@@ -108,11 +110,12 @@ export default function BrowserView({ tab, isActive, onTitleChange, onNavigateIn
   if (isHome) {
     const open = (u) => onNavigateInTab(u);
     const InternalView =
-      internal === 'history'   ? <HistoryPage   onOpen={open} /> :
-      internal === 'downloads' ? <DownloadsPage onOpen={open} /> :
-      internal === 'settings'  ? <SettingsPage  onOpen={open} /> :
-      internal === 'passwords' ? <PasswordsPage onOpen={open} /> :
-                                 <HomePage      onOpen={open} />;
+      internal === 'history'    ? <HistoryPage    onOpen={open} /> :
+      internal === 'downloads'  ? <DownloadsPage  onOpen={open} /> :
+      internal === 'settings'   ? <SettingsPage   onOpen={open} /> :
+      internal === 'passwords'  ? <PasswordsPage  onOpen={open} /> :
+      internal === 'extensions' ? <ExtensionsPage onOpen={open} /> :
+                                  <HomePage       onOpen={open} />;
     return (
       <Box sx={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'auto' }}>
         {InternalView}

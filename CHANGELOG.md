@@ -8,6 +8,59 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.27] - 2026-05-29
+
+### Fixed
+
+- **Notes panel no longer glitches when the page is visible behind it.**
+  Same z-order trap that originally bit the VPN panel: Electron's native
+  `WebContentsView` renders ABOVE the React HTML layer, so a panel sitting
+  on top of a webpage looked like just a floating header with the page
+  showing through its body. The chrome now shrinks the page container's
+  right padding by 540 px when Notes is open (520 px panel + a margin), so
+  the native view is pushed out of the panel's area.
+- **Click outside the Notes panel closes it.** Two listeners do the work:
+  a document `mousedown` capture for clicks on chrome (tabs / URL bar / etc.)
+  and a new `chrome:page-focus` IPC event broadcast from `wc.on('focus')`
+  for clicks on the actual webpage. Esc also closes the panel. A 200 ms
+  grace window prevents the panel from immediately closing from focus
+  events that fire as a new tab loads.
+
+### Added — Chrome extensions
+
+- **Load any Chrome extension** via Electron's built-in Chromium engine.
+  New module `electron/extensions.js` handles install / remove / enable /
+  disable, with extensions stored in `userData/sb-extensions/` and metadata
+  in `userData/sb-store/extensions.json`. Extensions auto-load on startup
+  into the same browsing session as the VPN, ad blocker, and downloads, so
+  they affect every tab.
+- **Two install paths**:
+  - **Load unpacked folder** — point at a developer-mode unpacked directory
+    and we copy it in + load it.
+  - **Install from .crx file** — for Chrome Web Store extensions. We strip
+    the CRX2/CRX3 header, unzip the embedded package (powered by `adm-zip`),
+    and load. Users can grab `.crx` from a CRX downloader site such as
+    crxextractor.com.
+- New page `smartbrowser://extensions` lists installed extensions with
+  name, version, manifest version (MV2 / MV3), enable/disable switch, and
+  remove button. A new **Extensions** entry sits in the hamburger menu next
+  to History / Downloads.
+- Known limitation: Chrome toolbar popups (the puzzle-piece icon) are not
+  rendered yet. Content scripts and MV3 background service workers work,
+  so ad blockers, password managers, dark-mode injectors, and most utility
+  extensions function normally.
+
+### Files
+
+- New: `electron/extensions.js`, `frontend/src/components/ExtensionsPage.jsx`.
+- Changed: `electron/main.js` (load extensions at startup, IPC handlers,
+  page-focus broadcast), `electron/preload.js` (extensions API, onPageFocus),
+  `frontend/src/App.jsx` (notes panel container shrink),
+  `frontend/src/components/NotesPanel.jsx` (click-outside + Esc + page-focus
+  close), `frontend/src/components/TopBar.jsx` (Extensions menu entry +
+  toggle data-attr), `frontend/src/components/BrowserView.jsx` (new internal
+  route). `adm-zip` added as a runtime dependency for CRX unpacking.
+
 ## [v1.0.26] - 2026-05-29
 
 ### Fixed

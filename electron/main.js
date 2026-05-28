@@ -13,6 +13,7 @@ const downloads = require('./downloads');
 const passwords = require('./passwords');
 const settings = require('./settings');
 const notes = require('./notes');
+const extensions = require('./extensions');
 const storeMod = require('./store');
 
 // One canonical session for ALL browsing traffic. Both the tabs (created via
@@ -343,6 +344,12 @@ function createTabView(tabId, initialUrl) {
     return { action: 'deny' };
   });
 
+  // Any focus on the native view (the user clicked into the page) tells the
+  // chrome to dismiss floating panels (Notes, VPN). Mouse events on the
+  // WebContentsView don't bubble into our React layer, so without this the
+  // panels would only close via the explicit X button.
+  wc.on('focus', () => broadcast('chrome:page-focus', { tabId }));
+
   tabs.set(tabId, { view });
   if (initialUrl && initialUrl !== 'about:blank') wc.loadURL(normalizeUrl(initialUrl));
   return tabs.get(tabId);
@@ -548,6 +555,25 @@ ipcMain.handle('notes:create', (_e, body)      => notes.create(body || {}));
 ipcMain.handle('notes:update', (_e, { id, patch }) => notes.update(id, patch || {}));
 ipcMain.handle('notes:remove', (_e, id)        => notes.remove(id));
 
+// ----- Extensions --------------------------------------------------------
+ipcMain.handle('extensions:list', () => extensions.list());
+ipcMain.handle('extensions:install-folder', async (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender) || mainWindow;
+  const dir = await extensions.pickFolder(w);
+  if (!dir) return { canceled: true };
+  try { return await extensions.installFromDir(dir); }
+  catch (err) { return { error: err.message }; }
+});
+ipcMain.handle('extensions:install-crx', async (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender) || mainWindow;
+  const file = await extensions.pickCrx(w);
+  if (!file) return { canceled: true };
+  try { return await extensions.installFromCrx(file); }
+  catch (err) { return { error: err.message }; }
+});
+ipcMain.handle('extensions:remove',      (_e, id)               => extensions.remove(id));
+ipcMain.handle('extensions:set-enabled', (_e, { id, enabled })  => extensions.setEnabled(id, enabled));
+
 // ====================  Lifecycle  ===========================================
 app.whenReady().then(() => {
   // Strip Electron-specific tokens so sites see a plain Chrome user agent.
@@ -573,6 +599,10 @@ app.whenReady().then(() => {
 
   // Install downloads tracking on the SAME session the tabs use.
   downloads.install(browsingSession, broadcast);
+
+  // Load any previously-installed Chrome extensions into the same session.
+  // Best-effort; failures are logged but don't block startup.
+  extensions.loadAll(browsingSession).catch((e) => console.warn('[extensions] loadAll:', e.message));
 
   startTor();
   startBackend();

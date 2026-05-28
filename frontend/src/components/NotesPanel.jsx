@@ -48,6 +48,52 @@ export default function NotesPanel({ open, onClose, initialNoteId }) {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
   const saveTimerRef = useRef(null);
+  const paperRef = useRef(null);
+
+  // Close the panel when the user clicks anywhere OUTSIDE its bounds —
+  // including the native WebContentsView (which fires a synthetic mouse
+  // event on the React layer via `setIgnoreMouseEvents` is NOT used here,
+  // but a click on the chrome chrome / TopBar / TabsBar reliably bubbles).
+  // We listen at the capture phase so a click that lands on the page (which
+  // does NOT bubble into React) still has a chance of dismissing via the
+  // window's focus loss when the BrowserView grabs focus — that's why we
+  // also watch the window's blur event below.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      const p = paperRef.current;
+      if (!p) return;
+      if (p.contains(e.target)) return;
+      // Ignore clicks on the toggle button itself — TopBar dispatches its
+      // own onToggle handler which would race with us.
+      const t = e.target;
+      if (t && t.closest && t.closest('[data-sb-notes-toggle]')) return;
+      onClose?.();
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, [open, onClose]);
+
+  // Esc closes the panel.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  // Native page focus (the user clicked into the WebContentsView) also
+  // closes the panel — those clicks never reach our React mousedown handler.
+  // 200 ms grace window prevents spurious focus events that fire right as a
+  // newly-created tab loads from immediately closing a freshly-opened panel.
+  useEffect(() => {
+    if (!open || !api?.tab?.onPageFocus) return;
+    const openedAt = Date.now();
+    return api.tab.onPageFocus(() => {
+      if (Date.now() - openedAt < 200) return;
+      onClose?.();
+    });
+  }, [open, onClose]);
 
   const active = useMemo(() => notes.find((n) => n.id === activeId) || null, [notes, activeId]);
 
@@ -148,6 +194,7 @@ export default function NotesPanel({ open, onClose, initialNoteId }) {
 
   return (
     <Paper
+      ref={paperRef}
       elevation={12}
       sx={{
         position: 'absolute', top: 64, zIndex: 30,

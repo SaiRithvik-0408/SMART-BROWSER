@@ -53,6 +53,11 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
       ipcRenderer.on('tab:open-new', handler);
       return () => ipcRenderer.removeListener('tab:open-new', handler);
     },
+    onPageFocus: (cb) => {
+      const handler = (_e, payload) => cb(payload);
+      ipcRenderer.on('chrome:page-focus', handler);
+      return () => ipcRenderer.removeListener('chrome:page-focus', handler);
+    },
   },
 
   history: {
@@ -102,5 +107,13 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
     create: (body)          => ipcRenderer.invoke('notes:create', body || {}),
     update: (id, patch)     => ipcRenderer.invoke('notes:update', { id, patch }),
     remove: (id)            => ipcRenderer.invoke('notes:remove', id),
+  },
+
+  extensions: {
+    list:          ()                 => ipcRenderer.invoke('extensions:list'),
+    installFolder: ()                 => ipcRenderer.invoke('extensions:install-folder'),
+    installCrx:    ()                 => ipcRenderer.invoke('extensions:install-crx'),
+    remove:        (id)               => ipcRenderer.invoke('extensions:remove', id),
+    setEnabled:    (id, enabled)      => ipcRenderer.invoke('extensions:set-enabled', { id, enabled }),
   },
 });

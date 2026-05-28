@@ -295,11 +295,16 @@ export default function App() {
           display: 'flex',
           position: 'relative',
           minHeight: 0,                  // critical: lets nested overflow:auto actually scroll
-          // Reserve space on the right for the VPN panel so the page stays visible
-          // and the panel area isn't covered by the native WebContentsView.
-          // On narrow windows the panel becomes a full-width sheet, so we don't
-          // bother reserving the right pad (the panel sits on top of content).
-          pr: vpnPanelOpen ? { xs: 0, sm: '400px' } : 0,
+          // Reserve right-side space for whichever side panel is open so the
+          // native WebContentsView (which always renders ABOVE this HTML) is
+          // shrunk away from the panel area. Without this, panels look like
+          // empty floating headers because the page sits on top of them.
+          // VPN panel: 400 px; Notes panel: 540 px (520 width + a margin).
+          // On narrow viewports the panels go full-width on top of content
+          // so we don't reserve any side space.
+          pr: notesPanelOpen ? { xs: 0, sm: '540px' }
+            : vpnPanelOpen   ? { xs: 0, sm: '400px' }
+            : 0,
           transition: 'padding-right 180ms ease',
         }}>
           {tabs.map(t => (

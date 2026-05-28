@@ -14,6 +14,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import HistoryIcon from '@mui/icons-material/History';
 import DownloadIcon from '@mui/icons-material/Download';
 import KeyIcon from '@mui/icons-material/Key';
+import ExtensionIcon from '@mui/icons-material/Extension';
 import SettingsIcon from '@mui/icons-material/Settings';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
@@ -47,10 +48,11 @@ export default function TopBar({
 
   const goTo = (url) => { setMenuAnchor(null); onNavigate(url); };
   const MENU = [
-    { key: 'history',   label: 'History',   icon: <HistoryIcon fontSize="small" />,   url: 'smartbrowser://history' },
-    { key: 'downloads', label: 'Downloads', icon: <DownloadIcon fontSize="small" />,  url: 'smartbrowser://downloads' },
-    { key: 'passwords', label: 'Passwords', icon: <KeyIcon fontSize="small" />,       url: 'smartbrowser://passwords' },
-    { key: 'settings',  label: 'Settings',  icon: <SettingsIcon fontSize="small" />,  url: 'smartbrowser://settings' },
+    { key: 'history',    label: 'History',    icon: <HistoryIcon fontSize="small" />,    url: 'smartbrowser://history' },
+    { key: 'downloads',  label: 'Downloads',  icon: <DownloadIcon fontSize="small" />,   url: 'smartbrowser://downloads' },
+    { key: 'extensions', label: 'Extensions', icon: <ExtensionIcon fontSize="small" />,  url: 'smartbrowser://extensions' },
+    { key: 'passwords',  label: 'Passwords',  icon: <KeyIcon fontSize="small" />,        url: 'smartbrowser://passwords' },
+    { key: 'settings',   label: 'Settings',   icon: <SettingsIcon fontSize="small" />,   url: 'smartbrowser://settings' },
   ];
 
   return (
@@ -103,7 +105,11 @@ export default function TopBar({
       </Tooltip>
 
       <Tooltip title={notesOpen ? 'Close notes' : 'Open notes'}>
-        <IconButton onClick={onToggleNotesPanel} sx={{ color: notesOpen ? '#fbbf24' : '#9aa3c7' }}>
+        <IconButton
+          data-sb-notes-toggle
+          onClick={onToggleNotesPanel}
+          sx={{ color: notesOpen ? '#fbbf24' : '#9aa3c7' }}
+        >
           <StickyNote2Icon />
         </IconButton>
       </Tooltip>

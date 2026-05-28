@@ -40,7 +40,9 @@
       "!**/*.{md,markdown}"
     ],
     "extraResources": [
-      { "from": "backend-node", "to": "backend-node",
+      {
+        "from": "backend-node",
+        "to": "backend-node",
         "filter": [
           "**/*",
           "!node_modules/.cache/**",
@@ -56,7 +58,9 @@
           "!**/*.ts"
         ]
       },
-      { "from": "tor", "to": "tor",
+      {
+        "from": "tor",
+        "to": "tor",
         "filter": [
           "tor/**/*",
           "data/geoip",
@@ -69,11 +73,25 @@
       }
     ],
     "win": {
-      "target": [{ "target": "zip", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "signAndEditExecutable": false,
       "artifactName": "SmartBrowser-${version}-win-x64.${ext}"
     },
-    "mac": { "target": "dmg" },
-    "linux": { "target": "AppImage" }
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17"
   }
 }
