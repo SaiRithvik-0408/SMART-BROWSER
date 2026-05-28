@@ -29,13 +29,21 @@ section collects changes that have landed on `main` but are not yet tagged.
   - Checks GitHub Releases on launch (and every 6h) and compares against
     `app.getVersion()`.
   - Shows an "Update available" banner below the tab bar.
-  - One-click install: on **Windows**, downloads the `-win-x64.zip`, then a
-    detached `.cmd` helper waits for exit, extracts, copies over the install
-    dir with `robocopy`, and relaunches — with a live progress bar. On
-    **macOS/Linux**, downloads and opens the `.dmg` / `.AppImage`.
+  - One-click install: on **Windows**, downloads the `Setup-<ver>.exe`
+    installer, then a detached `.cmd` helper waits for exit, runs it silently
+    (`/S`), and relaunches — with a live progress bar (falls back to ZIP
+    extract + `robocopy` if only a ZIP asset exists). On **macOS/Linux**,
+    downloads and opens the `.dmg` / `.AppImage`.
   - New IPC surface `updates` in `electron/preload.js`
     (`check` / `apply` / `onAvailable` / `onProgress` / `onError`).
 - New IPC surface `adblock` in `electron/preload.js`.
+- **Single-file Windows installer** (`scripts/installer.nsi`).
+  - Releases now ship `SmartBrowser-Setup-<ver>-win-x64.exe` instead of a loose
+    ZIP. NSIS is installed in CI via Chocolatey and compiles the hand-built
+    `win-unpacked` folder into the installer.
+  - Per-user install to `%LOCALAPPDATA%\Programs\SmartBrowser` (no admin/UAC,
+    like Chrome), Start Menu + Desktop shortcuts, Add/Remove Programs entry,
+    and silent install (`/S`) support for the auto-updater.
 
 ### Changed
 

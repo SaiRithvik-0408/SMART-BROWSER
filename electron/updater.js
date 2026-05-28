@@ -90,7 +90,11 @@ function isNewer(remote, local) {
 // Pick the release asset matching the current platform.
 function pickAsset(assets) {
   if (!Array.isArray(assets)) return null;
-  if (process.platform === 'win32')  return assets.find((a) => /-win-x64\.zip$/i.test(a.name));
+  if (process.platform === 'win32') {
+    // Prefer the single-file NSIS installer; fall back to the portable zip.
+    return assets.find((a) => /Setup-.*\.exe$/i.test(a.name))
+        || assets.find((a) => /-win-x64\.zip$/i.test(a.name));
+  }
   if (process.platform === 'darwin') return assets.find((a) => /\.dmg$/i.test(a.name));
   return assets.find((a) => /\.AppImage$/i.test(a.name));
 }
@@ -112,21 +116,40 @@ async function check() {
   return cached;
 }
 
-// Windows: download zip, drop a helper .cmd that swaps files after we exit.
+// Windows: download the asset, then a detached .cmd helper waits for the app
+// to exit, installs the update, and relaunches.
+//   - Setup .exe  → run silently with /S (per-user install, overwrites in place)
+//   - .zip (fallback) → extract + robocopy over the install dir
 async function applyWindows(info, onProgress) {
   const tmp = path.join(os.tmpdir(), `sb-update-${Date.now()}`);
   fs.mkdirSync(tmp, { recursive: true });
-  const zipPath = path.join(tmp, info.assetName);
-  await download(info.assetUrl, zipPath, onProgress);
+  const assetPath = path.join(tmp, info.assetName);
+  await download(info.assetUrl, assetPath, onProgress);
 
-  // Install dir is the parent of resources/ (where SmartBrowser.exe lives).
-  const installDir = path.dirname(process.resourcesPath);
   const exePath = process.execPath;
-  const extractDir = path.join(tmp, 'extract');
   const cmdPath = path.join(tmp, 'sb-update.cmd');
+  const isInstaller = /\.exe$/i.test(info.assetName);
 
-  // The ZIP extracts to a top-level `SmartBrowser\` folder (packaging guarantees
-  // this), so the new files live under <extract>\SmartBrowser.
+  let installStep;
+  if (isInstaller) {
+    // NSIS silent install into the existing per-user location.
+    installStep =
+`echo Installing update...
+"${assetPath}" /S
+`;
+  } else {
+    const installDir = path.dirname(process.resourcesPath);
+    const extractDir = path.join(tmp, 'extract');
+    installStep =
+`echo Extracting update...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '${assetPath}' -DestinationPath '${extractDir}' -Force"
+set "SRC=${extractDir}\\SmartBrowser"
+if not exist "%SRC%" set "SRC=${extractDir}"
+echo Installing update...
+robocopy "%SRC%" "${installDir}" /E /IS /IT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP >nul
+`;
+  }
+
   const script =
 `@echo off
 setlocal
@@ -137,13 +160,7 @@ if not errorlevel 1 (
   timeout /t 1 /nobreak >nul
   goto waitloop
 )
-echo Extracting update...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${extractDir}' -Force"
-set "SRC=${extractDir}\\SmartBrowser"
-if not exist "%SRC%" set "SRC=${extractDir}"
-echo Installing update...
-robocopy "%SRC%" "${installDir}" /E /IS /IT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP >nul
-echo Relaunching...
+${installStep}echo Relaunching...
 start "" "${exePath}"
 rmdir /s /q "${tmp}" >nul 2>&1
 del "%~f0" >nul 2>&1

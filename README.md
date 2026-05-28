@@ -39,7 +39,7 @@ See also [What's new](#whats-new) below and the full [`CHANGELOG.md`](./CHANGELO
 | **New-Reddit redirect** | `old.reddit.com` / `i.reddit.com` are rewritten to `www.reddit.com` on every navigation. | `electron/main.js` |
 | **Customizable widget dashboard** | Add / remove / reorder home-page widgets: Clock, Calendar, Notes, Quick Links, World Clock. Persists to `localStorage`. | `frontend/src/components/Widgets.jsx` |
 | **In-app auto-update** | Checks GitHub Releases on launch; shows an "Update available" banner; one click downloads the new version and (on Windows) installs + relaunches automatically. | `electron/updater.js`, `frontend/src/components/UpdateBanner.jsx` |
-| **Packaging fix** | Windows ZIP now extracts into a `SmartBrowser/` folder instead of dumping files loose, and builds are stamped with the release version. | `.github/workflows/release.yml` |
+| **Single-file Windows installer** | Releases now ship a single `SmartBrowser-Setup-<ver>-win-x64.exe` (NSIS, per-user, no admin) with Start Menu + Desktop shortcuts and an uninstaller — instead of a loose ZIP. | `scripts/installer.nsi`, `.github/workflows/release.yml` |
 
 ---
 
@@ -116,6 +116,9 @@ Chrome itself uses the same pattern (a native top-level window hosting separate 
 SMART BROWSER/
 ├── package.json                 ← root: Electron + electron-builder + dev scripts
 ├── README.md                    ← this file
+├── CHANGELOG.md                 ← change history
+├── scripts/
+│   └── installer.nsi            ← NSIS script → single-file Windows Setup .exe
 ├── electron/
 │   ├── main.js                  ← Electron main: window, tabs, VPN proxy, IPC, UA cleanup, Reddit redirect
 │   ├── adblock.js               ← built-in ad/tracker blocker (webRequest + cosmetic CSS)
@@ -224,6 +227,15 @@ A faster dry-run (skip installer creation, produce just the unpacked app folder)
 ```bash
 npm run package:dir
 ```
+
+### How official releases are built (CI)
+
+The published GitHub Releases are **not** built with `electron-builder` on Windows — that step repeatedly hung for 10-17 min on the runners. Instead `.github/workflows/release.yml`:
+
+1. Hand-builds the `win-unpacked` folder in PowerShell (download Electron runtime → drop in `resources/app` + `extraResources` → rename `electron.exe` to `SmartBrowser.exe`).
+2. Installs NSIS via Chocolatey and compiles `scripts/installer.nsi` into a single **`SmartBrowser-Setup-<ver>-win-x64.exe`**.
+
+The installer is **per-user** (installs to `%LOCALAPPDATA%\Programs\SmartBrowser`, no UAC/admin prompt — same model as Chrome), creates Start Menu + Desktop shortcuts, registers an uninstaller in Add/Remove Programs, and supports silent install (`/S`) which the [in-app updater](#10-in-app-auto-update) uses. macOS/Linux still produce `.dmg` / `.AppImage` via `electron-builder`.
 
 ---
 
@@ -372,7 +384,7 @@ SmartBrowser updates itself from **GitHub Releases** — no app store, no manual
 1. **Check** — `electron/updater.js` queries `https://api.github.com/repos/SaiRithvik-0408/SMART-BROWSER/releases/latest` ~8 seconds after launch, then every 6 hours. It compares the release tag (e.g. `v1.0.13`) against `app.getVersion()`.
 2. **Notify** — if a newer version exists *and* a matching asset is published for your platform, the main process emits `update:available` and the renderer shows an **Update banner** below the tab bar (`frontend/src/components/UpdateBanner.jsx`).
 3. **One-click install** — when you click **Update now**:
-   - **Windows**: the matching `SmartBrowser-<ver>-win-x64.zip` is downloaded to a temp folder, then a detached `.cmd` helper waits for the app to exit, extracts the ZIP (it unpacks into a `SmartBrowser/` folder), copies the new files over the install directory with `robocopy`, and relaunches `SmartBrowser.exe`. The banner shows a live download progress bar.
+   - **Windows**: the matching `SmartBrowser-Setup-<ver>-win-x64.exe` installer is downloaded to a temp folder, then a detached `.cmd` helper waits for the app to exit, runs the installer **silently** (`/S`, per-user, in-place), and relaunches `SmartBrowser.exe`. The banner shows a live download progress bar. (If a release only has the legacy ZIP, the updater falls back to extract + `robocopy`.)
    - **macOS / Linux**: the `.dmg` / `.AppImage` is downloaded to your Downloads folder and opened, since silent in-place replacement needs code-signing / extra infrastructure.
 
 ### Version stamping (why updates don't loop)

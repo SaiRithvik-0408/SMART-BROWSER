@@ -25,7 +25,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact_glob: 'dist_electron/*.zip'
+            artifact_glob: 'dist_electron/SmartBrowser-Setup-*.exe'
           - os: macos-latest
             artifact_glob: 'dist_electron/*.dmg'
           - os: ubuntu-latest
@@ -122,6 +122,14 @@ jobs:
           echo "APP_VERSION=$VER" >> "$GITHUB_ENV"
           node -e "const fs=require('fs');const p=require('./package.json');p.version='$VER';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           echo "Stamped version: $VER"
+
+      # NSIS isn't on the Windows Server 2025 runner image; install it via the
+      # pre-installed Chocolatey so we can compile a single Setup .exe (instead
+      # of shipping a loose ZIP). Takes ~10s.
+      - name: Install NSIS (Windows only)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: choco install nsis -y --no-progress
 
       # Cache the electron-builder helper binaries (electron-vX-arch.zip,
       # winCodeSign-2.6.0.7z, nsis-3.0.4.1.7z, etc). These are ~200 MB
@@ -283,17 +291,27 @@ jobs:
           Write-Host "Renaming electron.exe -> SmartBrowser.exe..."
           Move-Item (Join-Path $unpacked "electron.exe") (Join-Path $unpacked "SmartBrowser.exe") -Force
 
-          # ----- 5. Rename folder then zip so extraction gives SmartBrowser/ ---
+          # ----- 5. Rename win-unpacked -> SmartBrowser (installer source) -----
           $namedDir = "dist_electron\SmartBrowser"
           if (Test-Path $namedDir) { Remove-Item -Recurse -Force $namedDir }
           Rename-Item $unpacked $namedDir
-          $outZip = "dist_electron\SmartBrowser-$appVersion-win-x64.zip"
-          if (Test-Path $outZip) { Remove-Item -Force $outZip }
-          Write-Host "Creating $outZip ..."
-          Compress-Archive -Path $namedDir -DestinationPath $outZip -CompressionLevel Optimal
 
-          $size = [math]::Round((Get-Item $outZip).Length/1MB,1)
-          Write-Host "DONE: $outZip ($size MB)"
+          # ----- 6. Compile a single Setup .exe with NSIS --------------------
+          $makensis = @(
+            "${env:ProgramFiles(x86)}\NSIS\makensis.exe",
+            "$env:ProgramFiles\NSIS\makensis.exe",
+            "C:\ProgramData\chocolatey\bin\makensis.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $makensis) { throw "makensis.exe not found after NSIS install" }
+          Write-Host "Using makensis: $makensis"
+
+          $srcAbs = (Resolve-Path $namedDir).Path
+          $outExe = "$PWD\dist_electron\SmartBrowser-Setup-$appVersion-win-x64.exe"
+          & $makensis "/DVERSION=$appVersion" "/DSRCDIR=$srcAbs" "/DOUTFILE=$outExe" "scripts\installer.nsi"
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE" }
+
+          $size = [math]::Round((Get-Item $outExe).Length/1MB,1)
+          Write-Host "DONE: $outExe ($size MB)"
           Get-ChildItem dist_electron
 
       - name: Upload installer artifact
@@ -324,6 +342,7 @@ jobs:
           name: SmartBrowser ${{ github.ref_name }}
           generate_release_notes: true
           files: |
+            artifacts/**/*.exe
             artifacts/**/*.zip
             artifacts/**/*.dmg
             artifacts/**/*.AppImage
