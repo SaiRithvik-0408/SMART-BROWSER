@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Box, Typography, Stack, Switch, FormControlLabel, Divider,
   Select, MenuItem, FormControl, InputLabel, Button, Alert, Chip,
-  TextField, IconButton, InputAdornment, Link,
+  TextField, IconButton, InputAdornment, Link, Slider,
 } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
@@ -19,6 +19,12 @@ import {
   getCurrentGridCols, setCurrentGridCols,
   GRID_COL_MIN, GRID_COL_MAX, GRID_COL_PRESETS,
 } from '../lib/layouts';
+import {
+  loadBackground, saveBackground, clearBackground,
+  loadBackgroundOpacity, setBackgroundOpacity, BG_CHANGED_EVENT,
+} from '../lib/background';
+import ImageIcon from '@mui/icons-material/Image';
+import VideocamIcon from '@mui/icons-material/Videocam';
 
 const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
@@ -35,6 +41,130 @@ const AI_OPTIONS = [
   { value: 'gemini',  label: 'Gemini' },
   { value: 'claude',  label: 'Claude' },
 ];
+
+// =========================================================================
+// BackgroundPicker — upload an image or video as the home-page background.
+// The blob is stored in IndexedDB so video files aren't capped by
+// localStorage's 5 MB ceiling. Lives in Settings → Appearance.
+// =========================================================================
+function fmtSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024)        return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function BackgroundPicker() {
+  const [bg, setBg]         = useState(null);
+  const [opacity, setOp]    = useState(() => loadBackgroundOpacity());
+  const [busy, setBusy]     = useState(false);
+  const [error, setError]   = useState('');
+  const fileRef = useRef(null);
+
+  const refresh = async () => setBg(await loadBackground());
+
+  useEffect(() => {
+    refresh();
+    const onChange = () => refresh();
+    window.addEventListener(BG_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(BG_CHANGED_EVENT, onChange);
+  }, []);
+
+  const pick = (accept) => () => {
+    setError('');
+    if (!fileRef.current) return;
+    fileRef.current.accept = accept;
+    fileRef.current.click();
+  };
+  const onFile = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';   // reset so picking the same file twice fires onChange
+    if (!f) return;
+    setBusy(true);
+    try { await saveBackground(f); }
+    catch (err) { setError(err.message || 'Failed to save background.'); }
+    finally { setBusy(false); }
+  };
+  const clear = async () => {
+    setBusy(true);
+    try { await clearBackground(); }
+    finally { setBusy(false); }
+  };
+  const onOpacity = (_e, value) => {
+    setOp(value);
+    setBackgroundOpacity(value);
+  };
+
+  return (
+    <Stack spacing={1.5}>
+      <Typography sx={{ fontSize: 12, color: '#9aa3c7' }}>
+        Show a custom image or short video behind your widgets on the new-tab
+        page. Files are stored locally in IndexedDB — nothing is uploaded
+        anywhere.
+      </Typography>
+
+      {bg && (
+        <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center',
+          p: 1, borderRadius: 1.5, border: '1px solid rgba(167,139,250,0.30)',
+          background: 'rgba(167,139,250,0.05)' }}>
+          <Box sx={{
+            width: 72, height: 44, borderRadius: 1, overflow: 'hidden',
+            border: '1px solid rgba(255,255,255,0.08)', flexShrink: 0,
+            background: '#0a0e22',
+          }}>
+            {bg.kind === 'image'
+              ? <Box component="img" src={bg.url} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <Box component="video" src={bg.url} muted loop autoPlay sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            }
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#e6e9f5',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {bg.name}
+            </Typography>
+            <Typography sx={{ fontSize: 11, color: '#7a82a8' }}>
+              {bg.kind === 'image' ? 'Image' : 'Video'} · {fmtSize(bg.size)}
+            </Typography>
+          </Box>
+          <Button size="small" onClick={clear} disabled={busy}
+            sx={{ color: '#d6453d', minWidth: 0 }}>
+            Remove
+          </Button>
+        </Box>
+      )}
+
+      <Stack direction="row" spacing={1}>
+        <Button size="small" variant="outlined" startIcon={<ImageIcon />}
+          onClick={pick('image/*')} disabled={busy}>
+          {bg?.kind === 'image' ? 'Replace image' : 'Upload image'}
+        </Button>
+        <Button size="small" variant="outlined" startIcon={<VideocamIcon />}
+          onClick={pick('video/*')} disabled={busy}>
+          {bg?.kind === 'video' ? 'Replace video' : 'Upload video'}
+        </Button>
+        <input
+          ref={fileRef} type="file" hidden onChange={onFile}
+        />
+      </Stack>
+
+      {bg && (
+        <Box>
+          <Typography sx={{ fontSize: 12, color: '#9aa3c7', mb: 0.5 }}>
+            Opacity: {Math.round(opacity * 100)}%
+          </Typography>
+          <Slider
+            value={opacity}
+            min={0.05} max={1} step={0.05}
+            onChange={onOpacity}
+            sx={{ color: '#a78bfa' }}
+          />
+        </Box>
+      )}
+
+      {error && <Alert severity="error" sx={{ fontSize: 12 }}>{error}</Alert>}
+    </Stack>
+  );
+}
 
 // =========================================================================
 // LayoutsManager — 3 saved layout slots ("themes") for the home dashboard.
@@ -308,10 +438,12 @@ export default function SettingsPage() {
   );
 
   return (
-    <Box sx={{ p: 4, maxWidth: 800, mx: 'auto', color: '#e6e9f5' }}>
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-        <SettingsIcon sx={{ fontSize: 32, color: '#a78bfa' }} />
-        <Typography variant="h4" sx={{ fontWeight: 700, flex: 1 }}>Settings</Typography>
+    // Side-panel friendly padding (was p:4, maxWidth:800). Lives inside a
+    // ~520px panel now, so we use full width and tighter padding.
+    <Box sx={{ p: 2.5, width: '100%', color: '#e6e9f5' }}>
+      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2.5 }}>
+        <SettingsIcon sx={{ fontSize: 26, color: '#a78bfa' }} />
+        <Typography variant="h5" sx={{ fontWeight: 700, flex: 1 }}>Settings</Typography>
       </Stack>
 
       <Section title="Search">
@@ -448,6 +580,10 @@ export default function SettingsPage() {
             inline answers in the widget.
           </Alert>
         </Stack>
+      </Section>
+
+      <Section title="Appearance">
+        <BackgroundPicker />
       </Section>
 
       <Section title="Dashboard">

@@ -8,6 +8,62 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.39] - 2026-05-29
+
+### Fixed — Settings/Notes/etc. no longer blank the page, side-panel like Brave
+
+The v1.0.35 fix hid every native `WebContentsView` whenever any overlay
+opened (Notes, VPN, Settings, Extensions, …), which made the area
+behind the panel completely black — the user reported the page was
+"becoming blank" when they clicked a widget or opened Settings.
+
+Reverted that approach in favor of a **Chrome/Brave-style side panel**:
+
+- App.jsx wrapper Box now reserves `540 px` on the right (`pr:
+  ${PANEL_WIDTH}px`) when any overlay is open instead of calling
+  `api.tab.setAllVisible(false)`.
+- BrowserView's placeholder div shrinks accordingly; its existing
+  `ResizeObserver` pushes the new bounds to the native
+  WebContentsView, so the page stays visible at a narrower width
+  alongside the panel.
+- `InternalOverlay` (Settings / Extensions / History / Downloads /
+  Passwords) refactored from a centered 1100-px modal into a 520-px
+  right-side panel matching `NotesPanel` and `VpnPanel`. Esc + the
+  close button dismiss it; the page area on the left is still fully
+  interactive.
+- All five internal-page components (`SettingsPage`, `HistoryPage`,
+  `DownloadsPage`, `PasswordsPage`, `ExtensionsPage`) lost their
+  `p: 4, maxWidth: 9xx, mx: auto` desktop-modal padding in favor of
+  `p: 2.5, width: 100%` so they fit comfortably in the new narrower
+  panel.
+
+### Added — Custom image / video background for the new-tab page
+
+New **Settings → Appearance** section lets you upload an image or
+short video to render behind the widgets on the home page, plus an
+opacity slider to dial how strongly it shows through.
+
+Storage:
+- `frontend/src/lib/background.js` — new module backed by
+  **IndexedDB** (object store `blobs` in DB `sb-background`) so video
+  files aren't capped by localStorage's ~5 MB ceiling. Blob is stored
+  as-is; the renderer recreates a `URL.createObjectURL` on each load
+  and revokes the previous URL to avoid handle leaks.
+- Opacity stored separately in `localStorage` (`sb.background.opacity.v1`)
+  so it can be read synchronously on first render.
+- Fires a `sb:background-changed` custom event so any mounted
+  `HomePage` refreshes without a page reload.
+
+Files:
+- `frontend/src/components/HomePage.jsx` — renders a fixed-position
+  `<img>` or `<video autoplay loop muted playsInline>` behind the
+  widgets, layered with `pointer-events:none` so it never intercepts
+  clicks on widgets.
+- `frontend/src/components/SettingsPage.jsx` — new `BackgroundPicker`
+  component with file picker (separate `image/*` and `video/*`
+  buttons), live preview thumbnail, opacity slider, and a Remove
+  button.
+
 ## [v1.0.38] - 2026-05-29
 
 ### Added — Right-click → Duplicate on every widget

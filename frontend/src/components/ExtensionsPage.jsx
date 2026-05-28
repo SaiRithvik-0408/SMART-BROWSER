@@ -54,7 +54,7 @@ export default function ExtensionsPage({ onOpen }) {
 
   if (!api?.extensions) {
     return (
-      <Box sx={{ p: 4, maxWidth: 800, mx: 'auto', color: '#e6e9f5' }}>
+      <Box sx={{ p: 2.5, width: '100%', color: '#e6e9f5' }}>
         <Alert severity="warning">
           Chrome extensions are only available in the desktop build.
         </Alert>
@@ -63,7 +63,7 @@ export default function ExtensionsPage({ onOpen }) {
   }
 
   return (
-    <Box sx={{ p: 4, maxWidth: 900, mx: 'auto', color: '#e6e9f5' }}>
+    <Box sx={{ p: 2.5, width: '100%', color: '#e6e9f5' }}>
       <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
         <ExtensionIcon sx={{ fontSize: 32, color: '#7aa2ff' }} />
         <Typography variant="h4" sx={{ fontWeight: 700, flex: 1 }}>Extensions</Typography>

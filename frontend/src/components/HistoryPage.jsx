@@ -59,7 +59,7 @@ export default function HistoryPage({ onOpen }) {
   };
 
   return (
-    <Box sx={{ p: 4, maxWidth: 980, mx: 'auto', color: '#e6e9f5' }}>
+    <Box sx={{ p: 2.5, width: '100%', color: '#e6e9f5' }}>
       <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
         <HistoryIcon sx={{ fontSize: 32, color: '#7aa2ff' }} />
         <Typography variant="h4" sx={{ fontWeight: 700, flex: 1 }}>History</Typography>

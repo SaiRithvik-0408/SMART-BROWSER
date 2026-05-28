@@ -216,25 +216,19 @@ export default function App() {
     } catch {}
   }, [tabs, activeId]);
 
-  // Whenever ANY popup-style chrome is open (internal overlay, Notes
-  // panel, VPN panel), hide every native WebContentsView so the React
-  // overlay is actually visible. Native views always render above HTML,
-  // so without hiding them the panel would be invisible behind the page.
+  // Right-side panels (Notes, VPN, Settings/Extensions/History/Downloads/
+  // Passwords) reserve a fixed slice of the screen on the right edge.
+  // Adding right-padding to the BrowserView wrapper shrinks the
+  // placeholder div — a ResizeObserver inside BrowserView mirrors the
+  // new bounds into the native WebContentsView, so the page stays
+  // visible at the narrower width WHILE the panel sits beside it
+  // (Chrome/Brave side-panel UX).
   //
-  // This intentionally REPLACES the old "shrink the BrowserView via
-  // padding-right" trick — the user explicitly asked for popups that
-  // float on top WITHOUT resizing the website. The site is briefly
-  // hidden while the popup is open and reappears at full size the
-  // moment it closes.
+  // This intentionally undoes v1.0.35's "hide the webview" trick which
+  // left a blank area behind the panel — the user explicitly asked for
+  // the page to remain visible alongside the panel.
+  const PANEL_WIDTH = 540;        // px reserved on the right when any panel is open
   const anyOverlayOpen = !!internalOverlay || notesPanelOpen || vpnPanelOpen;
-  useEffect(() => {
-    if (!inElectron) return;
-    if (anyOverlayOpen) {
-      api.tab.setAllVisible(false);
-    } else {
-      api.tab.activate(activeId);
-    }
-  }, [anyOverlayOpen, activeId]);
 
   // Esc closes any open internal overlay.
   useEffect(() => {
@@ -468,12 +462,13 @@ export default function App() {
           display: 'flex',
           position: 'relative',
           minHeight: 0,                  // critical: lets nested overflow:auto actually scroll
-          // No more right-side reservation for panels. The website always
-          // renders at full width; when a panel/overlay opens, the native
-          // WebContentsView is hidden entirely (see anyOverlayOpen effect
-          // above) so the React panel can render in its place WITHOUT
-          // resizing the page underneath. Closing the panel restores the
-          // page at full size with no reflow.
+          // Reserve right-side space for any open panel. The placeholder
+          // div inside BrowserView shrinks accordingly; its
+          // ResizeObserver pushes the new bounds to the native
+          // WebContentsView so the page stays visible at the narrower
+          // width WHILE the panel renders beside it.
+          pr: anyOverlayOpen ? `${PANEL_WIDTH}px` : 0,
+          transition: 'padding-right 200ms ease',
         }}>
           {tabs.map(t => (
             <Box key={t.id} sx={{ flex: 1, display: t.id === activeId ? 'flex' : 'none', minHeight: 0 }}>
@@ -503,11 +498,16 @@ export default function App() {
 }
 
 // =========================================================================
-// InternalOverlay — pops one of the internal pages (settings, history,
-// downloads, extensions, passwords) as a floating modal on top of whichever
-// tab the user was viewing. The active tab's native WebContentsView is
-// hidden by App's useEffect while this is open, so the overlay is actually
-// visible (native views always render above HTML).
+// InternalOverlay — Brave-style RIGHT-SIDE panel for the internal pages
+// (settings, history, downloads, extensions, passwords). Floats on top of
+// the React shell on the right edge; App's wrapper applies right-padding
+// to the BrowserView container while this is open so the website stays
+// visible alongside the panel at a narrower width (same trick used by
+// NotesPanel and VpnPanel).
+//
+// Was a centered modal in v1.0.35 — which forced us to hide the webview
+// entirely (blanking the page). Switched to a side panel so the page
+// remains visible while Settings/etc. are open.
 // =========================================================================
 function InternalOverlay({ name, onClose, onOpen }) {
   if (!name) return null;
@@ -519,48 +519,39 @@ function InternalOverlay({ name, onClose, onOpen }) {
     settings:   'Settings',
   };
   return (
-    // Backdrop covers the area under the URL bar; clicking it closes the
-    // overlay. We don't dim too aggressively so the user remembers they're
-    // still on a page.
-    <Box
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    <Paper
+      elevation={16}
       sx={{
-        position: 'absolute', inset: 0, zIndex: 40,
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-        background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
-        p: { xs: 1, sm: 3 },
+        // Sized to match NotesPanel/VpnPanel so the right-side cutout
+        // applied by App's wrapper exactly accommodates this panel.
+        position: 'absolute', top: 64, zIndex: 40,
+        right: { xs: 8, sm: 16 },
+        bottom: 16,
+        width: { xs: 'calc(100% - 16px)', sm: 520 },
+        display: 'flex', flexDirection: 'column',
+        borderRadius: 3, overflow: 'hidden',
+        background: 'rgba(8,9,14,0.98)',
+        border: '1px solid rgba(255,255,255,0.08)',
       }}
     >
-      <Paper
-        elevation={16}
-        sx={{
-          width: 'min(1100px, 100%)',
-          height: 'min(100%, 92vh)',
-          display: 'flex', flexDirection: 'column',
-          borderRadius: 3, overflow: 'hidden',
-          background: 'rgba(8,9,14,0.98)',
-          border: '1px solid rgba(255,255,255,0.08)',
-        }}
-      >
-        <Box sx={{
-          display: 'flex', alignItems: 'center', gap: 1,
-          px: 2, py: 1.25, borderBottom: '1px solid rgba(255,255,255,0.08)',
-        }}>
-          <Typography sx={{ flex: 1, fontWeight: 600, color: '#e6e9f5' }}>
-            {titles[name] || name}
-          </Typography>
-          <IconButton size="small" onClick={onClose} sx={{ color: '#9aa3c7' }}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        </Box>
-        <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-          {name === 'history'    && <HistoryPage onOpen={onOpen} />}
-          {name === 'downloads'  && <DownloadsPage onOpen={onOpen} />}
-          {name === 'passwords'  && <PasswordsPage onOpen={onOpen} />}
-          {name === 'extensions' && <ExtensionsPage onOpen={onOpen} />}
-          {name === 'settings'   && <SettingsPage onOpen={onOpen} />}
-        </Box>
-      </Paper>
-    </Box>
+      <Box sx={{
+        display: 'flex', alignItems: 'center', gap: 1,
+        px: 2, py: 1.25, borderBottom: '1px solid rgba(255,255,255,0.08)',
+      }}>
+        <Typography sx={{ flex: 1, fontWeight: 600, color: '#e6e9f5' }}>
+          {titles[name] || name}
+        </Typography>
+        <IconButton size="small" onClick={onClose} sx={{ color: '#9aa3c7' }}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </Box>
+      <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+        {name === 'history'    && <HistoryPage onOpen={onOpen} />}
+        {name === 'downloads'  && <DownloadsPage onOpen={onOpen} />}
+        {name === 'passwords'  && <PasswordsPage onOpen={onOpen} />}
+        {name === 'extensions' && <ExtensionsPage onOpen={onOpen} />}
+        {name === 'settings'   && <SettingsPage onOpen={onOpen} />}
+      </Box>
+    </Paper>
   );
 }

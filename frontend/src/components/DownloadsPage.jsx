@@ -57,7 +57,7 @@ export default function DownloadsPage() {
   const clear   = ()   => api?.downloads?.clear().then(reload);
 
   return (
-    <Box sx={{ p: 4, maxWidth: 980, mx: 'auto', color: '#e6e9f5' }}>
+    <Box sx={{ p: 2.5, width: '100%', color: '#e6e9f5' }}>
       <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
         <DownloadIcon sx={{ fontSize: 32, color: '#34d399' }} />
         <Typography variant="h4" sx={{ fontWeight: 700, flex: 1 }}>Downloads</Typography>
