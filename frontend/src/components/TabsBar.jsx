@@ -1,16 +1,21 @@
 import React from 'react';
-import { Box, Tabs, Tab, IconButton, Stack, Typography } from '@mui/material';
+import { Box, Tabs, Tab, IconButton, Stack, Typography, Tooltip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import PublicIcon from '@mui/icons-material/Public';
+import AddIcon from '@mui/icons-material/Add';
 
-export default function TabsBar({ tabs, activeId, onSelect, onClose }) {
+export default function TabsBar({ tabs, activeId, onSelect, onClose, onNewTab }) {
   return (
-    <Box sx={{ px: 1, position: 'relative', zIndex: 5 }}>
+    <Box sx={{
+      pl: 1, pr: 0.5, pt: 0.75,
+      display: 'flex', alignItems: 'flex-end', gap: 0.25,
+      position: 'relative', zIndex: 5,
+    }}>
       <Tabs
         value={activeId} onChange={(_, v) => onSelect(v)}
         variant="scrollable" scrollButtons="auto"
         sx={{
-          minHeight: 38,
+          flex: 1, minHeight: 38,
           '& .MuiTabs-indicator': { background: 'linear-gradient(90deg,#7aa2ff,#a78bfa)', height: 3, borderRadius: 2 },
         }}
       >
@@ -38,6 +43,20 @@ export default function TabsBar({ tabs, activeId, onSelect, onClose }) {
           />
         ))}
       </Tabs>
+      {onNewTab && (
+        <Tooltip title="New tab (Ctrl+T)">
+          <IconButton
+            size="small" onClick={onNewTab}
+            sx={{
+              mb: 0.5, mx: 0.5,
+              color: '#9aa3c7',
+              '&:hover': { color: '#e6e9f5', background: 'rgba(122,162,255,0.10)' },
+            }}
+          >
+            <AddIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
     </Box>
   );
 }

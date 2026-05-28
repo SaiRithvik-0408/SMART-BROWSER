@@ -9,10 +9,9 @@ import HomeIcon from '@mui/icons-material/Home';
 import ShieldIcon from '@mui/icons-material/Shield';
 import LockIcon from '@mui/icons-material/Lock';
 import SettingsIcon from '@mui/icons-material/Settings';
-import AddIcon from '@mui/icons-material/Add';
 
 export default function TopBar({
-  url, onNavigate, onBack, onForward, onReload, onHome, onNewTab,
+  url, onNavigate, onBack, onForward, onReload, onHome,
   vpnOn, onToggleVpnPanel, activeServerLabel,
 }) {
   const [input, setInput] = useState(url || '');
@@ -34,7 +33,7 @@ export default function TopBar({
       elevation={6}
       sx={{
         position: 'relative', zIndex: 5,
-        m: 1, mb: 0.5, px: 1.25, py: 0.75,
+        mx: 1, mt: 0.5, mb: 0.5, px: 1.25, py: 0.75,
         display: 'flex', alignItems: 'center', gap: 1, borderRadius: 3,
       }}
     >
@@ -77,7 +76,6 @@ export default function TopBar({
           <ShieldIcon />
         </IconButton>
       </Tooltip>
-      <IconButton onClick={onNewTab}><AddIcon /></IconButton>
       <IconButton><SettingsIcon /></IconButton>
     </Paper>
   );

@@ -109,18 +109,19 @@ export default function App() {
       <ThreeBackground active={vpnStatus.enabled} />
 
       <Box sx={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <TopBar
-          url={active?.url === 'home' ? '' : (active?._displayUrl || active?.url)}
-          onNavigate={navigate}
-          onBack={back} onForward={forward} onReload={reload} onHome={home} onNewTab={addTab}
-          vpnOn={vpnStatus.enabled}
-          activeServerLabel={vpnStatus.activeServer?.label}
-          onToggleVpnPanel={() => setVpnPanelOpen(v => !v)}
-        />
         <TabsBar
           tabs={tabs} activeId={activeId}
           onSelect={setActiveId}
           onClose={closeTab}
+          onNewTab={addTab}
+        />
+        <TopBar
+          url={active?.url === 'home' ? '' : (active?._displayUrl || active?.url)}
+          onNavigate={navigate}
+          onBack={back} onForward={forward} onReload={reload} onHome={home}
+          vpnOn={vpnStatus.enabled}
+          activeServerLabel={vpnStatus.activeServer?.label}
+          onToggleVpnPanel={() => setVpnPanelOpen(v => !v)}
         />
         <UpdateBanner />
         <Box sx={{

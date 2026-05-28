@@ -13,7 +13,9 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import StickyNote2Icon from '@mui/icons-material/StickyNote2';
 import LinkIcon from '@mui/icons-material/Link';
 import PublicIcon from '@mui/icons-material/Public';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { motion } from 'framer-motion';
+import { proxyUrlFor } from '../api/client';
 
 const STORAGE_KEY = 'smartbrowser.widgets.v2';
 
@@ -30,6 +32,7 @@ const CATALOG = [
   { type: 'notes',     label: 'Notes',       icon: <StickyNote2Icon fontSize="small" /> },
   { type: 'links',     label: 'Quick Links', icon: <LinkIcon fontSize="small" /> },
   { type: 'worldclock',label: 'World Clock', icon: <PublicIcon fontSize="small" /> },
+  { type: 'stocks',    label: 'Stocks',      icon: <TrendingUpIcon fontSize="small" /> },
 ];
 
 // Resize presets — cycled by the resize button. col/row are grid spans.
@@ -44,8 +47,9 @@ const nextSize = (s) => SIZES[(SIZES.indexOf(s) + 1) % SIZES.length];
 
 const DEFAULTS = [
   { id: 'w-clock',    type: 'clock',    size: 'm', config: {} },
+  { id: 'w-stocks',   type: 'stocks',   size: 'l', config: {} },
   { id: 'w-calendar', type: 'calendar', size: 'm', config: {} },
-  { id: 'w-notes',    type: 'notes',    size: 'l', config: { text: '' } },
+  { id: 'w-notes',    type: 'notes',    size: 'm', config: { text: '' } },
 ];
 
 function loadWidgets() {
@@ -185,6 +189,7 @@ function WidgetFrame({ widget, isFirst, isLast, onRemove, onResize, onMove, onCo
         {widget.type === 'notes' && <NotesWidget config={widget.config} onConfig={onConfig} />}
         {widget.type === 'links' && <LinksWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
         {widget.type === 'worldclock' && <WorldClockWidget config={widget.config} onConfig={onConfig} />}
+        {widget.type === 'stocks' && <StockWidget config={widget.config} onConfig={onConfig} size={widget.size} />}
       </Box>
     </Box>
   );
@@ -350,6 +355,131 @@ function WorldClockWidget({ config, onConfig }) {
       >
         {ZONES.map((z) => <MenuItem key={z.label} value={z.label} sx={{ fontFamily: MONO, fontSize: 12 }}>{z.label}</MenuItem>)}
       </Select>
+    </Box>
+  );
+}
+
+// Default watchlist — five major US ETFs covering broad market exposure.
+const DEFAULT_SYMBOLS = ['SPY', 'QQQ', 'VOO', 'VTI', 'DIA'];
+
+async function fetchQuote(symbol) {
+  // Yahoo Finance v8 chart API — key-less, returns last price + previous close.
+  // Routed through the local backend `/api/proxy` to bypass CORS.
+  const upstream = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  const res = await fetch(proxyUrlFor(upstream), { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const meta = data?.chart?.result?.[0]?.meta;
+  if (!meta) throw new Error('no data');
+  const price = Number(meta.regularMarketPrice);
+  const prev  = Number(meta.chartPreviousClose ?? meta.previousClose);
+  const change = price - prev;
+  const pct = prev ? (change / prev) * 100 : 0;
+  return { symbol: meta.symbol || symbol.toUpperCase(), price, change, pct, currency: meta.currency || 'USD' };
+}
+
+function fmtPrice(v, ccy) {
+  if (!Number.isFinite(v)) return '—';
+  const sym = ccy === 'USD' ? '$' : (ccy === 'INR' ? '₹' : (ccy === 'EUR' ? '€' : (ccy === 'GBP' ? '£' : '')));
+  return `${sym}${v.toFixed(2)}`;
+}
+
+function StockWidget({ config, onConfig, size }) {
+  const symbols = (config.symbols && config.symbols.length) ? config.symbols : DEFAULT_SYMBOLS;
+  const [quotes, setQuotes] = useState(null);
+  const [error, setError] = useState('');
+  const [adding, setAdding] = useState('');
+
+  const load = React.useCallback(async () => {
+    setError('');
+    try {
+      const results = await Promise.allSettled(symbols.map(fetchQuote));
+      setQuotes(results.map((r, i) => r.status === 'fulfilled'
+        ? r.value
+        : { symbol: symbols[i], error: true }));
+    } catch (e) { setError(e.message || 'failed'); }
+  }, [symbols]);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { const id = setInterval(load, 60000); return () => clearInterval(id); }, [load]);
+
+  const addSymbol = () => {
+    const s = adding.trim().toUpperCase();
+    if (!s || symbols.includes(s)) { setAdding(''); return; }
+    onConfig({ symbols: [...symbols, s] });
+    setAdding('');
+  };
+  const removeSymbol = (s) => onConfig({ symbols: symbols.filter((x) => x !== s) });
+  const resetDefaults = () => onConfig({ symbols: DEFAULT_SYMBOLS });
+
+  const compact = size === 's' || size === 'm';
+
+  return (
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+        {!quotes && !error && (
+          <Typography sx={{ fontFamily: MONO, fontSize: 10, color: '#5b6385', letterSpacing: 1 }}>
+            LOADING QUOTES…
+          </Typography>
+        )}
+        {error && (
+          <Typography sx={{ fontFamily: MONO, fontSize: 10, color: '#5b6385', letterSpacing: 1 }}>
+            {error.toUpperCase()}
+          </Typography>
+        )}
+        {quotes && quotes.map((q) => {
+          const up = q.pct > 0, down = q.pct < 0;
+          const color = q.error ? '#5b6385' : (up ? '#34d399' : down ? '#f87171' : '#9aa3c7');
+          return (
+            <Box key={q.symbol} sx={{
+              display: 'grid', alignItems: 'center', gap: 1,
+              gridTemplateColumns: compact ? '1fr auto auto auto' : '64px 1fr auto auto auto',
+              py: 0.4, borderBottom: `1px solid ${LINE}`,
+              '&:hover .stk-x': { opacity: 1 },
+            }}>
+              <Typography sx={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: '#e6e9f5' }}>
+                {q.symbol}
+              </Typography>
+              {!compact && (
+                <Box />
+              )}
+              <Typography sx={{ fontFamily: MONO, fontSize: 12, color: '#cdd3ee',
+                fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+                {q.error ? '—' : fmtPrice(q.price, q.currency)}
+              </Typography>
+              <Typography sx={{ fontFamily: MONO, fontSize: 11, color, fontVariantNumeric: 'tabular-nums',
+                minWidth: 56, textAlign: 'right' }}>
+                {q.error ? '' : `${up ? '▲' : down ? '▼' : '·'} ${Math.abs(q.pct).toFixed(2)}%`}
+              </Typography>
+              <IconButton
+                className="stk-x" size="small"
+                onClick={() => removeSymbol(q.symbol)}
+                sx={{ opacity: 0, transition: 'opacity 120ms' }}
+              >
+                <CloseIcon sx={{ fontSize: 12 }} />
+              </IconButton>
+            </Box>
+          );
+        })}
+      </Box>
+      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
+        <TextField
+          variant="standard" placeholder="ADD TICKER" value={adding}
+          onChange={(e) => setAdding(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && addSymbol()}
+          sx={{ flex: 1, '& input': { fontFamily: MONO, fontSize: 11, color: '#e6e9f5', textTransform: 'uppercase' } }}
+        />
+        <IconButton size="small" onClick={addSymbol}><AddIcon sx={{ fontSize: 15, color: ACCENT }} /></IconButton>
+        <Tooltip title="Reset to default ETFs">
+          <Typography
+            onClick={resetDefaults}
+            sx={{ fontFamily: MONO, fontSize: 9, letterSpacing: 1, color: '#5b6385', cursor: 'pointer',
+              '&:hover': { color: '#e6e9f5' } }}
+          >
+            RESET
+          </Typography>
+        </Tooltip>
+      </Box>
     </Box>
   );
 }

@@ -37,7 +37,8 @@ See also [What's new](#whats-new) below and the full [`CHANGELOG.md`](./CHANGELO
 | **Ad / tracker blocker** | Network-level blocking of ~120 known ad/analytics/tracker hosts + ad URL paths (incl. YouTube ad endpoints) and cosmetic CSS hiding. Toggleable. | `electron/adblock.js` |
 | **Chrome-identical user agent** | Strips `Electron/…` and `smart-browser/…` tokens so sites see plain Chrome. Stops the DuckDuckGo "upgrade your browser" popup. | `electron/main.js` |
 | **New-Reddit redirect** | `old.reddit.com` / `i.reddit.com` are rewritten to `www.reddit.com` on every navigation. | `electron/main.js` |
-| **Home page: widgets + favorites + news** | Nothing-UI-style **resizable** grid widgets (Clock, Calendar, Notes, Quick Links, World Clock), an editable **favorites header**, and a **Top Stories** news feed on scroll. All persist to `localStorage`. | `Widgets.jsx`, `Favorites.jsx`, `NewsFeed.jsx` |
+| **Home page: widgets + favorites + ET news + stocks** | Nothing-UI-style **resizable** grid widgets (Clock, Calendar, Notes, Quick Links, World Clock, **Stocks watchlist**), an editable **favorites header**, and an **Economic Times** news feed on scroll. All persist to `localStorage`. | `Widgets.jsx`, `Favorites.jsx`, `NewsFeed.jsx` |
+| **Chrome/Brave-style layout** | Tabs strip is at the top of the window (with a `+` new-tab button) above the URL bar; home-page search hero sits a third of the way down for breathing room. | `App.jsx`, `TabsBar.jsx`, `HomePage.jsx` |
 | **In-app auto-update** | Checks GitHub Releases on launch; shows an "Update available" banner; one click downloads the new version and (on Windows) installs + relaunches automatically. | `electron/updater.js`, `frontend/src/components/UpdateBanner.jsx` |
 | **Single-file Windows installer** | Releases now ship a single `SmartBrowser-Setup-<ver>-win-x64.exe` (NSIS, per-user, no admin) with Start Menu + Desktop shortcuts and an uninstaller — instead of a loose ZIP. | `scripts/installer.nsi`, `.github/workflows/release.yml` |
 
@@ -382,9 +383,20 @@ The visual style is **inspired by Nothing OS**: monospace type, uppercase labels
 
 A bar at the top of the home page (`Favorites.jsx`) lets you **add / remove favorite sites** (shown with favicons). Click one to open it in a tab. Stored in `localStorage` (`smartbrowser.favorites.v1`).
 
-### News feed (scroll down)
+### News feed — Economic Times (scroll down)
 
-Below the dashboard, a **Top Stories** section (`NewsFeed.jsx`) loads headlines from the free, key-less, CORS-enabled **Hacker News API** — no API key, no tracking. Click a card to open the article in a tab; the refresh button reloads. (If offline, it shows a friendly message instead.)
+Below the dashboard, a news section (`NewsFeed.jsx`) loads headlines from **Economic Times RSS feeds** — three switchable sections: **Top**, **Markets**, **Tech**. Click a card to open the article in a tab; the refresh button reloads.
+
+ET doesn't ship CORS headers on its feeds, so the requests are routed through the local backend `/api/proxy` which strips CORS / CSP and forwards the raw XML. The RSS is parsed client-side with `DOMParser`.
+
+### Stock watchlist widget
+
+A widget that shows live-ish prices for a watchlist of tickers:
+
+- **Defaults**: five major US ETFs — **SPY**, **QQQ**, **VOO**, **VTI**, **DIA**.
+- **Add / remove** tickers from the inline input; **RESET** restores the default ETFs.
+- Quotes come from Yahoo Finance's key-less `v8/finance/chart` endpoint, routed through the local proxy. Refresh runs every 60 s.
+- Each row shows symbol, price, and an up/down arrow with percent change (green if positive, red if negative).
 
 ---
 

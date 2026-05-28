@@ -18,9 +18,23 @@ section collects changes that have landed on `main` but are not yet tagged.
 - **Favorites header**: an editable bar at the top of the home page to add /
   remove favorite sites (with favicons), persisted to
   `localStorage` (`smartbrowser.favorites.v1`).
-- **News feed**: a "Top Stories" section appears as you scroll the home page,
-  pulled from the free, key-less, CORS-enabled Hacker News API; click a card to
-  open the story in a tab.
+- **News feed (Economic Times)**: a news section appears as you scroll the home
+  page, pulled from Economic Times RSS feeds (Top / Markets / Tech sections,
+  switchable). Fetched via the local backend `/api/proxy` since ET doesn't
+  ship CORS headers.
+- **Stock watchlist widget**: real-time-ish quotes via Yahoo Finance's
+  key-less chart API (routed through the local proxy). Defaults to five major
+  US ETFs (SPY, QQQ, VOO, VTI, DIA); add/remove your own tickers; auto-refresh
+  every minute. Up/down colored with arrows and percent change.
+
+### Changed
+
+- **Browser layout**: tabs strip moved to the **top of the window** (above the
+  URL bar) with a `+` new-tab button at the end — matches Chrome / Brave.
+  Removed the duplicate `+` from the URL bar.
+- **Home page**: hero (logo + search) now sits roughly a third of the way down
+  the viewport instead of at the top, giving the favorites header and the
+  widget dashboard cleaner separation.
 
 - **Built-in ad / tracker blocker** (`electron/adblock.js`).
   - Network-level blocking via `session.webRequest.onBeforeRequest` against a
