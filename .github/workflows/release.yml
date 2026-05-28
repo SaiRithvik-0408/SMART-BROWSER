@@ -292,9 +292,11 @@ jobs:
           Move-Item (Join-Path $unpacked "electron.exe") (Join-Path $unpacked "SmartBrowser.exe") -Force
 
           # ----- 5. Rename win-unpacked -> SmartBrowser (installer source) -----
+          # Rename-Item's -NewName must be a leaf name, NOT a path, or it errors
+          # with "represents a path or device name".
           $namedDir = "dist_electron\SmartBrowser"
           if (Test-Path $namedDir) { Remove-Item -Recurse -Force $namedDir }
-          Rename-Item $unpacked $namedDir
+          Rename-Item -Path $unpacked -NewName "SmartBrowser"
 
           # ----- 6. Compile a single Setup .exe with NSIS --------------------
           $makensis = @(
