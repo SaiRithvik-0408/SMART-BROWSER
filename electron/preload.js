@@ -6,6 +6,11 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
   version:  () => ipcRenderer.invoke('app:version'),
   applyProxy: (cfg) => ipcRenderer.invoke('vpn:apply-proxy', cfg),
 
+  adblock: {
+    stats:      ()        => ipcRenderer.invoke('adblock:stats'),
+    setEnabled: (enabled) => ipcRenderer.invoke('adblock:set', enabled),
+  },
+
   tab: {
     create:    (tabId, url) => ipcRenderer.invoke('tab:create',   { tabId, url }),
     destroy:   (tabId)      => ipcRenderer.invoke('tab:destroy',  tabId),

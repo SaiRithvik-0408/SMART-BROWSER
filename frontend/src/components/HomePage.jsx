@@ -8,12 +8,13 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import RouterIcon from '@mui/icons-material/Router';
 import BoltIcon from '@mui/icons-material/Bolt';
 import { motion } from 'framer-motion';
+import Widgets from './Widgets';
 
 const SHORTCUTS = [
   { label: 'YouTube',    url: 'https://www.youtube.com', color: '#ff4757' },
   { label: 'Wikipedia',  url: 'https://en.wikipedia.org', color: '#9aa3c7' },
   { label: 'GitHub',     url: 'https://github.com', color: '#e6e9f5' },
-  { label: 'Reddit',     url: 'https://old.reddit.com', color: '#ff7043' },
+  { label: 'Reddit',     url: 'https://www.reddit.com', color: '#ff7043' },
   { label: 'X / Twitter',url: 'https://x.com', color: '#7aa2ff' },
   { label: 'DuckDuckGo', url: 'https://duckduckgo.com', color: '#fbbf24' },
 ];
@@ -33,8 +34,8 @@ export default function HomePage({ onOpen }) {
   return (
     <Box sx={{
       position: 'relative', minHeight: '100%', display: 'flex',
-      flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      px: 3, py: 6, color: '#e6e9f5',
+      flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
+      px: 3, pt: 8, pb: 6, color: '#e6e9f5',
     }}>
       <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.6 }}>
         <Typography variant="h2" sx={{
@@ -85,13 +86,15 @@ export default function HomePage({ onOpen }) {
         ))}
       </Grid>
 
+      <Widgets onOpen={onOpen} />
+
       <Grid container spacing={2} sx={{ mt: 6, maxWidth: 920 }} justifyContent="center">
         <FeatureCard icon={<ShieldIcon />} title="Built-in VPN"
           desc="Outbound traffic flows through a SOCKS/HTTPS tunnel. The destination only sees the exit node's IP." />
-        <FeatureCard icon={<VisibilityOffIcon />} title="Website masking"
-          desc="The network never sees youtube.com or any real host — only this SmartBrowser server." />
-        <FeatureCard icon={<RouterIcon />} title="One unified host"
-          desc="Every request, image, script and websocket is rewritten to /api/proxy?url= on this domain." />
+        <FeatureCard icon={<VisibilityOffIcon />} title="Ad & tracker blocker"
+          desc="Known ad, analytics and tracker requests are blocked at the network layer for faster, cleaner pages." />
+        <FeatureCard icon={<RouterIcon />} title="Customizable dashboard"
+          desc="Add, remove and rearrange widgets — clock, calendar, notes, quick links and world clock." />
       </Grid>
     </Box>
   );

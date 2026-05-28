@@ -6,6 +6,21 @@ const { app, BrowserWindow, WebContentsView, ipcMain, session, shell, Menu } = r
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
+const adblock = require('./adblock');
+
+// Rewrite legacy/redirect hosts to their modern equivalents.
+// Reddit's old.reddit.com is the dated UI; route to the current www.reddit.com.
+function normalizeUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+  try {
+    const u = new URL(rawUrl);
+    if (u.hostname === 'old.reddit.com' || u.hostname === 'i.reddit.com') {
+      u.hostname = 'www.reddit.com';
+      return u.href;
+    }
+  } catch {}
+  return rawUrl;
+}
 
 const isDev = process.env.NODE_ENV === 'development';
 const BACKEND_PORT = 8080;
@@ -194,6 +209,16 @@ function createTabView(tabId, initialUrl) {
   bindShortcuts(view.webContents);
 
   const wc = view.webContents;
+  // Apply cosmetic ad-hiding CSS once the DOM is ready on every navigation.
+  wc.on('dom-ready', () => adblock.applyCosmetic(wc));
+  // Redirect legacy hosts (e.g. old.reddit.com -> www.reddit.com) before load.
+  wc.on('will-navigate', (event, url) => {
+    const normalized = normalizeUrl(url);
+    if (normalized !== url) {
+      event.preventDefault();
+      wc.loadURL(normalized);
+    }
+  });
   wc.on('did-start-loading', () => broadcast('tab:event', { tabId, type: 'loading', loading: true }));
   wc.on('did-stop-loading',  () => broadcast('tab:event', { tabId, type: 'loading', loading: false }));
   wc.on('did-navigate',         (_e, url) => broadcast('tab:event', { tabId, type: 'nav', url }));
@@ -206,7 +231,7 @@ function createTabView(tabId, initialUrl) {
   });
 
   tabs.set(tabId, { view });
-  if (initialUrl && initialUrl !== 'about:blank') wc.loadURL(initialUrl);
+  if (initialUrl && initialUrl !== 'about:blank') wc.loadURL(normalizeUrl(initialUrl));
   return tabs.get(tabId);
 }
 
@@ -303,12 +328,15 @@ ipcMain.handle('vpn:apply-proxy', async (_e, payload) => applyProxy(payload));
 ipcMain.handle('app:version',  () => app.getVersion());
 ipcMain.handle('app:platform', () => process.platform);
 
+ipcMain.handle('adblock:stats', () => adblock.stats());
+ipcMain.handle('adblock:set',   (_e, enabled) => { adblock.setEnabled(enabled); return adblock.stats(); });
+
 ipcMain.handle('tab:create',   (_e, { tabId, url }) => { createTabView(tabId, url); });
 ipcMain.handle('tab:destroy',  (_e, tabId) => destroyTabView(tabId));
 ipcMain.handle('tab:activate', (_e, tabId) => activateTabView(tabId));
 ipcMain.handle('tab:navigate', (_e, { tabId, url }) => {
   const t = tabs.get(tabId);
-  if (t && url) t.view.webContents.loadURL(url);
+  if (t && url) t.view.webContents.loadURL(normalizeUrl(url));
 });
 ipcMain.handle('tab:back',     (_e, tabId) => {
   const t = tabs.get(tabId);
@@ -340,6 +368,9 @@ app.whenReady().then(() => {
     .replace(/\s+Electron\/\S+/, '')
     .replace(/\s+smart-browser\/\S+/, '');
   session.defaultSession.setUserAgent(cleanUA);
+
+  // Install the built-in ad/tracker blocker on the shared session.
+  adblock.install();
 
   startTor();
   startBackend();
