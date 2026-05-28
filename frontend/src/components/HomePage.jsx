@@ -1,23 +1,11 @@
 import React, { useState } from 'react';
-import {
-  Box, Stack, Typography, Paper, InputBase, IconButton, Grid, Chip,
-} from '@mui/material';
+import { Box, Typography, Paper, InputBase, IconButton } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
-import ShieldIcon from '@mui/icons-material/Shield';
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import RouterIcon from '@mui/icons-material/Router';
 import BoltIcon from '@mui/icons-material/Bolt';
 import { motion } from 'framer-motion';
 import Widgets from './Widgets';
-
-const SHORTCUTS = [
-  { label: 'YouTube',    url: 'https://www.youtube.com', color: '#ff4757' },
-  { label: 'Wikipedia',  url: 'https://en.wikipedia.org', color: '#9aa3c7' },
-  { label: 'GitHub',     url: 'https://github.com', color: '#e6e9f5' },
-  { label: 'Reddit',     url: 'https://www.reddit.com', color: '#ff7043' },
-  { label: 'X / Twitter',url: 'https://x.com', color: '#7aa2ff' },
-  { label: 'DuckDuckGo', url: 'https://duckduckgo.com', color: '#fbbf24' },
-];
+import NewsFeed from './NewsFeed';
+import Favorites from './Favorites';
 
 export default function HomePage({ onOpen }) {
   const [q, setQ] = useState('');
@@ -35,86 +23,45 @@ export default function HomePage({ onOpen }) {
     <Box sx={{
       position: 'relative', minHeight: '100%', display: 'flex',
       flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
-      px: 3, pt: 8, pb: 6, color: '#e6e9f5',
+      pb: 6, color: '#e6e9f5',
     }}>
-      <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.6 }}>
-        <Typography variant="h2" sx={{
-          fontWeight: 800, letterSpacing: -1.5, textAlign: 'center',
-          background: 'linear-gradient(90deg,#7aa2ff,#a78bfa,#34d399)',
-          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-        }}>
-          Smart<span style={{ fontWeight: 400 }}>Browser</span>
-        </Typography>
-        <Typography variant="h6" sx={{ textAlign: 'center', color: '#9aa3c7', mt: 1 }}>
-          Private. Masked. Free. — every site routes through one secure tunnel.
-        </Typography>
-      </motion.div>
+      <Favorites onOpen={onOpen} />
 
-      <Paper
-        component="form" onSubmit={go}
-        sx={{
-          mt: 5, width: 'min(680px, 92vw)',
-          display: 'flex', alignItems: 'center', gap: 1,
-          px: 2, py: 1.25, borderRadius: 999,
-        }}
-      >
-        <SearchIcon />
-        <InputBase
-          fullWidth value={q} onChange={(e) => setQ(e.target.value)}
-          placeholder="Search the web privately, or paste a URL"
-          sx={{ color: 'text.primary', fontSize: 16 }}
-        />
-        <IconButton type="submit" color="primary"><BoltIcon /></IconButton>
-      </Paper>
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', px: 3, pt: 5, width: '100%' }}>
+        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.6 }}>
+          <Typography variant="h2" sx={{
+            fontWeight: 800, letterSpacing: -1.5, textAlign: 'center',
+            background: 'linear-gradient(90deg,#7aa2ff,#a78bfa,#34d399)',
+            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+          }}>
+            Smart<span style={{ fontWeight: 400 }}>Browser</span>
+          </Typography>
+          <Typography variant="h6" sx={{ textAlign: 'center', color: '#9aa3c7', mt: 1 }}>
+            Private. Masked. Free. — every site routes through one secure tunnel.
+          </Typography>
+        </motion.div>
 
-      <Grid container spacing={1.5} sx={{ mt: 4, maxWidth: 720, justifyContent: 'center' }}>
-        {SHORTCUTS.map(s => (
-          <Grid item key={s.url}>
-            <Chip
-              clickable
-              onClick={() => onOpen(s.url)}
-              label={s.label}
-              sx={{
-                px: 1.5, py: 2.2, fontSize: 14,
-                border: `1px solid ${s.color}55`,
-                background: `${s.color}18`,
-                color: '#e6e9f5',
-                '&:hover': { background: `${s.color}30` },
-              }}
-            />
-          </Grid>
-        ))}
-      </Grid>
+        <Paper
+          component="form" onSubmit={go}
+          sx={{
+            mt: 4, width: 'min(680px, 92vw)',
+            display: 'flex', alignItems: 'center', gap: 1,
+            px: 2, py: 1.25, borderRadius: 999,
+          }}
+        >
+          <SearchIcon />
+          <InputBase
+            fullWidth value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="Search the web privately, or paste a URL"
+            sx={{ color: 'text.primary', fontSize: 16 }}
+          />
+          <IconButton type="submit" color="primary"><BoltIcon /></IconButton>
+        </Paper>
 
-      <Widgets onOpen={onOpen} />
+        <Widgets onOpen={onOpen} />
 
-      <Grid container spacing={2} sx={{ mt: 6, maxWidth: 920 }} justifyContent="center">
-        <FeatureCard icon={<ShieldIcon />} title="Built-in VPN"
-          desc="Outbound traffic flows through a SOCKS/HTTPS tunnel. The destination only sees the exit node's IP." />
-        <FeatureCard icon={<VisibilityOffIcon />} title="Ad & tracker blocker"
-          desc="Known ad, analytics and tracker requests are blocked at the network layer for faster, cleaner pages." />
-        <FeatureCard icon={<RouterIcon />} title="Customizable dashboard"
-          desc="Add, remove and rearrange widgets — clock, calendar, notes, quick links and world clock." />
-      </Grid>
+        <NewsFeed onOpen={onOpen} />
+      </Box>
     </Box>
-  );
-}
-
-function FeatureCard({ icon, title, desc }) {
-  return (
-    <Grid item xs={12} sm={6} md={4}>
-      <Paper sx={{ p: 2.5, height: '100%' }}>
-        <Stack direction="row" spacing={1.5} alignItems="center" mb={1}>
-          <Box sx={{
-            width: 36, height: 36, borderRadius: 2,
-            display: 'grid', placeItems: 'center',
-            background: 'linear-gradient(135deg,#7aa2ff44,#a78bfa44)',
-            border: '1px solid rgba(122,162,255,0.35)', color: '#7aa2ff',
-          }}>{icon}</Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{title}</Typography>
-        </Stack>
-        <Typography variant="body2" color="text.secondary">{desc}</Typography>
-      </Paper>
-    </Grid>
   );
 }

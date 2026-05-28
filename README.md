@@ -37,7 +37,7 @@ See also [What's new](#whats-new) below and the full [`CHANGELOG.md`](./CHANGELO
 | **Ad / tracker blocker** | Network-level blocking of ~120 known ad/analytics/tracker hosts + ad URL paths (incl. YouTube ad endpoints) and cosmetic CSS hiding. Toggleable. | `electron/adblock.js` |
 | **Chrome-identical user agent** | Strips `Electron/…` and `smart-browser/…` tokens so sites see plain Chrome. Stops the DuckDuckGo "upgrade your browser" popup. | `electron/main.js` |
 | **New-Reddit redirect** | `old.reddit.com` / `i.reddit.com` are rewritten to `www.reddit.com` on every navigation. | `electron/main.js` |
-| **Customizable widget dashboard** | Add / remove / reorder home-page widgets: Clock, Calendar, Notes, Quick Links, World Clock. Persists to `localStorage`. | `frontend/src/components/Widgets.jsx` |
+| **Home page: widgets + favorites + news** | Nothing-UI-style **resizable** grid widgets (Clock, Calendar, Notes, Quick Links, World Clock), an editable **favorites header**, and a **Top Stories** news feed on scroll. All persist to `localStorage`. | `Widgets.jsx`, `Favorites.jsx`, `NewsFeed.jsx` |
 | **In-app auto-update** | Checks GitHub Releases on launch; shows an "Update available" banner; one click downloads the new version and (on Windows) installs + relaunches automatically. | `electron/updater.js`, `frontend/src/components/UpdateBanner.jsx` |
 | **Single-file Windows installer** | Releases now ship a single `SmartBrowser-Setup-<ver>-win-x64.exe` (NSIS, per-user, no admin) with Start Menu + Desktop shortcuts and an uninstaller — instead of a loose ZIP. | `scripts/installer.nsi`, `.github/workflows/release.yml` |
 
@@ -149,8 +149,10 @@ SMART BROWSER/
             ├── TopBar.jsx       ← omnibar + nav buttons + shield toggle
             ├── TabsBar.jsx      ← MUI Tabs with close buttons
             ├── BrowserView.jsx  ← placeholder + ResizeObserver (Electron) / iframe (web fallback)
-            ├── HomePage.jsx     ← gradient hero, search, shortcuts, widget dashboard, feature cards
-            ├── Widgets.jsx      ← customizable widget dashboard (clock/calendar/notes/links/world clock)
+            ├── HomePage.jsx     ← favorites header, search hero, widget dashboard, news feed
+            ├── Favorites.jsx    ← editable favorites header (add/remove, persisted)
+            ├── Widgets.jsx      ← resizable grid widgets (Nothing-UI style); clock/calendar/notes/links/world clock
+            ├── NewsFeed.jsx     ← "Top Stories" feed (Hacker News API) shown on scroll
             ├── UpdateBanner.jsx ← "update available" banner + one-click auto-update
             ├── VpnPanel.jsx     ← server picker, connect/disconnect, IP check
             └── ThreeBackground.jsx  ← rotating wireframe globe + particles
@@ -365,13 +367,24 @@ The home page (`frontend/src/components/Widgets.jsx`) renders a **Dashboard** of
 | **Quick Links** | Personal shortcut list; click to open in a tab | Add / remove links |
 | **World Clock** | Time in another timezone | Pick city (NY, London, Berlin, Mumbai, Tokyo, Sydney…) |
 
-Controls per widget:
+Controls per widget (revealed on hover):
 
 - **Add** — the "Add widget" button opens a menu of widget types.
-- **Remove** — the ✕ button on each widget card.
+- **Resize** — the resize button cycles size presets **S → M → L → XL**, implemented as CSS-grid column + row spans so widgets reflow into the grid.
 - **Reorder** — the ‹ / › arrows move a widget left/right.
+- **Remove** — the ✕ button.
 
-The whole layout (which widgets, their order, and each widget's config) is persisted to `localStorage` under `smartbrowser.widgets.v1`, so it survives restarts. No backend or network calls are involved.
+The whole layout (which widgets, their order, size, and each widget's config) is persisted to `localStorage` under `smartbrowser.widgets.v2`, so it survives restarts. No backend is involved.
+
+The visual style is **inspired by Nothing OS**: monospace type, uppercase labels, flat near-black surfaces with a dotted-grid texture, and a single red accent.
+
+### Favorites header
+
+A bar at the top of the home page (`Favorites.jsx`) lets you **add / remove favorite sites** (shown with favicons). Click one to open it in a tab. Stored in `localStorage` (`smartbrowser.favorites.v1`).
+
+### News feed (scroll down)
+
+Below the dashboard, a **Top Stories** section (`NewsFeed.jsx`) loads headlines from the free, key-less, CORS-enabled **Hacker News API** — no API key, no tracking. Click a card to open the article in a tab; the refresh button reloads. (If offline, it shows a friendly message instead.)
 
 ---
 

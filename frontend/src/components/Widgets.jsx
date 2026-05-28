@@ -1,12 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Box, Paper, Stack, Typography, IconButton, Menu, MenuItem, Button,
-  InputBase, Select, TextField, Tooltip, Divider,
+  Box, Typography, IconButton, Menu, MenuItem, Button,
+  InputBase, Select, TextField, Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import AspectRatioIcon from '@mui/icons-material/AspectRatio';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import StickyNote2Icon from '@mui/icons-material/StickyNote2';
@@ -14,9 +15,15 @@ import LinkIcon from '@mui/icons-material/Link';
 import PublicIcon from '@mui/icons-material/Public';
 import { motion } from 'framer-motion';
 
-const STORAGE_KEY = 'smartbrowser.widgets.v1';
+const STORAGE_KEY = 'smartbrowser.widgets.v2';
 
-// Catalogue of widget types available to add.
+// Nothing-UI-inspired tokens: monospace, uppercase, flat black surfaces,
+// a single red accent, dotted grid texture.
+const MONO = "'JetBrains Mono', 'SFMono-Regular', ui-monospace, Menlo, monospace";
+const ACCENT = '#d6453d';            // Nothing red
+const SURFACE = 'rgba(8,9,14,0.72)';
+const LINE = 'rgba(255,255,255,0.10)';
+
 const CATALOG = [
   { type: 'clock',     label: 'Clock',       icon: <AccessTimeIcon fontSize="small" /> },
   { type: 'calendar',  label: 'Calendar',    icon: <CalendarMonthIcon fontSize="small" /> },
@@ -25,10 +32,20 @@ const CATALOG = [
   { type: 'worldclock',label: 'World Clock', icon: <PublicIcon fontSize="small" /> },
 ];
 
+// Resize presets — cycled by the resize button. col/row are grid spans.
+const SIZES = ['s', 'm', 'l', 'xl'];
+const SIZE_SPAN = {
+  s:  { col: 1, row: 1 },
+  m:  { col: 2, row: 1 },
+  l:  { col: 2, row: 2 },
+  xl: { col: 3, row: 2 },
+};
+const nextSize = (s) => SIZES[(SIZES.indexOf(s) + 1) % SIZES.length];
+
 const DEFAULTS = [
-  { id: 'w-clock',    type: 'clock',    config: {} },
-  { id: 'w-calendar', type: 'calendar', config: {} },
-  { id: 'w-notes',    type: 'notes',    config: { text: '' } },
+  { id: 'w-clock',    type: 'clock',    size: 'm', config: {} },
+  { id: 'w-calendar', type: 'calendar', size: 'm', config: {} },
+  { id: 'w-notes',    type: 'notes',    size: 'l', config: { text: '' } },
 ];
 
 function loadWidgets() {
@@ -48,10 +65,12 @@ export default function Widgets({ onOpen }) {
   }, [widgets]);
 
   const addWidget = (type) => {
-    setWidgets((prev) => [...prev, { id: `w-${type}-${Date.now()}`, type, config: {} }]);
+    setWidgets((prev) => [...prev, { id: `w-${type}-${Date.now()}`, type, size: 'm', config: {} }]);
     setAddAnchor(null);
   };
   const removeWidget = (id) => setWidgets((prev) => prev.filter((w) => w.id !== id));
+  const resizeWidget = (id) =>
+    setWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, size: nextSize(w.size || 'm') } : w)));
   const moveWidget = (id, dir) => setWidgets((prev) => {
     const idx = prev.findIndex((w) => w.id === id);
     const next = idx + dir;
@@ -64,84 +83,110 @@ export default function Widgets({ onOpen }) {
     setWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, config: { ...w.config, ...patch } } : w)));
 
   return (
-    <Box sx={{ width: 'min(1040px, 94vw)', mt: 7 }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5, px: 0.5 }}>
-        <Typography variant="subtitle2" sx={{ color: '#9aa3c7', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+    <Box sx={{ width: 'min(1100px, 95vw)', mt: 7 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5 }}>
+        <Typography sx={{ fontFamily: MONO, fontSize: 12, letterSpacing: 3, textTransform: 'uppercase',
+          color: '#9aa3c7', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT }} />
           Dashboard
         </Typography>
         <Button
           size="small" startIcon={<AddIcon />}
           onClick={(e) => setAddAnchor(e.currentTarget)}
-          sx={{ color: '#7aa2ff', textTransform: 'none' }}
+          sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#e6e9f5' }}
         >
           Add widget
         </Button>
         <Menu anchorEl={addAnchor} open={!!addAnchor} onClose={() => setAddAnchor(null)}>
           {CATALOG.map((c) => (
-            <MenuItem key={c.type} onClick={() => addWidget(c.type)} sx={{ gap: 1.2 }}>
+            <MenuItem key={c.type} onClick={() => addWidget(c.type)}
+              sx={{ gap: 1.2, fontFamily: MONO, fontSize: 13 }}>
               {c.icon}{c.label}
             </MenuItem>
           ))}
         </Menu>
-      </Stack>
+      </Box>
 
       <Box sx={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-        gap: 2,
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridAutoRows: '116px',
+        gap: 1.5,
+        '@media (max-width: 720px)': { gridTemplateColumns: 'repeat(2, 1fr)' },
       }}>
-        {widgets.map((w, i) => (
-          <motion.div key={w.id} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-            <WidgetFrame
-              widget={w}
-              isFirst={i === 0}
-              isLast={i === widgets.length - 1}
-              onRemove={() => removeWidget(w.id)}
-              onMove={(dir) => moveWidget(w.id, dir)}
-              onConfig={(patch) => updateConfig(w.id, patch)}
-              onOpen={onOpen}
-            />
-          </motion.div>
-        ))}
+        {widgets.map((w, i) => {
+          const span = SIZE_SPAN[w.size || 'm'] || SIZE_SPAN.m;
+          return (
+            <motion.div
+              key={w.id} layout
+              initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
+              style={{ gridColumn: `span ${span.col}`, gridRow: `span ${span.row}` }}
+            >
+              <WidgetFrame
+                widget={w}
+                isFirst={i === 0}
+                isLast={i === widgets.length - 1}
+                onRemove={() => removeWidget(w.id)}
+                onResize={() => resizeWidget(w.id)}
+                onMove={(dir) => moveWidget(w.id, dir)}
+                onConfig={(patch) => updateConfig(w.id, patch)}
+                onOpen={onOpen}
+              />
+            </motion.div>
+          );
+        })}
       </Box>
     </Box>
   );
 }
 
-function WidgetFrame({ widget, isFirst, isLast, onRemove, onMove, onConfig, onOpen }) {
+function WidgetFrame({ widget, isFirst, isLast, onRemove, onResize, onMove, onConfig, onOpen }) {
   const meta = CATALOG.find((c) => c.type === widget.type) || { label: widget.type, icon: null };
   return (
-    <Paper sx={{ p: 1.5, height: 220, display: 'flex', flexDirection: 'column', borderRadius: 3 }}>
-      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5 }}>
-        <Box sx={{ color: '#7aa2ff', display: 'flex' }}>{meta.icon}</Box>
-        <Typography variant="caption" sx={{ flex: 1, color: '#9aa3c7', fontWeight: 600 }}>
+    <Box sx={{
+      height: '100%', display: 'flex', flexDirection: 'column',
+      p: 1.25, borderRadius: '4px',
+      background: SURFACE,
+      border: `1px solid ${LINE}`,
+      backgroundImage: 'radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)',
+      backgroundSize: '14px 14px',
+      transition: 'border-color 140ms ease',
+      '&:hover': { borderColor: 'rgba(255,255,255,0.22)' },
+      '&:hover .wgt-controls': { opacity: 1 },
+    }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75 }}>
+        <Box sx={{ color: ACCENT, display: 'flex', '& svg': { fontSize: 15 } }}>{meta.icon}</Box>
+        <Typography sx={{ flex: 1, fontFamily: MONO, fontSize: 10, letterSpacing: 2,
+          textTransform: 'uppercase', color: '#9aa3c7' }}>
           {meta.label}
         </Typography>
-        <Tooltip title="Move left">
-          <span><IconButton size="small" disabled={isFirst} onClick={() => onMove(-1)}>
-            <ChevronLeftIcon sx={{ fontSize: 16 }} />
-          </IconButton></span>
-        </Tooltip>
-        <Tooltip title="Move right">
-          <span><IconButton size="small" disabled={isLast} onClick={() => onMove(1)}>
-            <ChevronRightIcon sx={{ fontSize: 16 }} />
-          </IconButton></span>
-        </Tooltip>
-        <Tooltip title="Remove">
-          <IconButton size="small" onClick={onRemove}>
-            <CloseIcon sx={{ fontSize: 16 }} />
-          </IconButton>
-        </Tooltip>
-      </Stack>
-      <Divider sx={{ borderColor: 'rgba(122,162,255,0.12)', mb: 1 }} />
-      <Box sx={{ flex: 1, overflow: 'hidden' }}>
-        {widget.type === 'clock' && <ClockWidget />}
+        <Box className="wgt-controls" sx={{ display: 'flex', opacity: 0, transition: 'opacity 140ms ease' }}>
+          <Tooltip title="Resize">
+            <IconButton size="small" onClick={onResize}><AspectRatioIcon sx={{ fontSize: 14 }} /></IconButton>
+          </Tooltip>
+          <Tooltip title="Move left">
+            <span><IconButton size="small" disabled={isFirst} onClick={() => onMove(-1)}>
+              <ChevronLeftIcon sx={{ fontSize: 15 }} />
+            </IconButton></span>
+          </Tooltip>
+          <Tooltip title="Move right">
+            <span><IconButton size="small" disabled={isLast} onClick={() => onMove(1)}>
+              <ChevronRightIcon sx={{ fontSize: 15 }} />
+            </IconButton></span>
+          </Tooltip>
+          <Tooltip title="Remove">
+            <IconButton size="small" onClick={onRemove}><CloseIcon sx={{ fontSize: 14 }} /></IconButton>
+          </Tooltip>
+        </Box>
+      </Box>
+      <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        {widget.type === 'clock' && <ClockWidget size={widget.size} />}
         {widget.type === 'calendar' && <CalendarWidget />}
         {widget.type === 'notes' && <NotesWidget config={widget.config} onConfig={onConfig} />}
         {widget.type === 'links' && <LinksWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
         {widget.type === 'worldclock' && <WorldClockWidget config={widget.config} onConfig={onConfig} />}
       </Box>
-    </Paper>
+    </Box>
   );
 }
 
@@ -154,17 +199,23 @@ function useNow(intervalMs = 1000) {
   return now;
 }
 
-function ClockWidget() {
+function ClockWidget({ size }) {
   const now = useNow();
+  const big = size === 'l' || size === 'xl';
   return (
-    <Stack alignItems="center" justifyContent="center" sx={{ height: '100%' }}>
-      <Typography sx={{ fontSize: 40, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#e6e9f5' }}>
-        {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+      <Typography sx={{ fontFamily: MONO, fontWeight: 700, lineHeight: 1,
+        fontSize: big ? 'clamp(40px, 8vw, 72px)' : 'clamp(28px, 5vw, 44px)',
+        color: '#e6e9f5', fontVariantNumeric: 'tabular-nums' }}>
+        {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
       </Typography>
-      <Typography variant="body2" sx={{ color: '#9aa3c7' }}>
-        {now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
+      <Typography sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 1, color: '#9aa3c7', mt: 0.5,
+        textTransform: 'uppercase' }}>
+        {now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+        {' · '}
+        {now.toLocaleTimeString([], { second: '2-digit' })}s
       </Typography>
-    </Stack>
+    </Box>
   );
 }
 
@@ -181,19 +232,21 @@ function CalendarWidget() {
 
   return (
     <Box sx={{ height: '100%' }}>
-      <Typography variant="caption" sx={{ color: '#e6e9f5', fontWeight: 700 }}>
+      <Typography sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 1, color: '#e6e9f5',
+        textTransform: 'uppercase', mb: 0.5 }}>
         {now.toLocaleDateString([], { month: 'long', year: 'numeric' })}
       </Typography>
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.25, mt: 0.5 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.25 }}>
         {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-          <Typography key={i} sx={{ fontSize: 9, textAlign: 'center', color: '#6b7299' }}>{d}</Typography>
+          <Typography key={i} sx={{ fontFamily: MONO, fontSize: 9, textAlign: 'center', color: '#5b6385' }}>{d}</Typography>
         ))}
         {cells.map((d, i) => (
           <Box key={i} sx={{
-            textAlign: 'center', fontSize: 10, py: 0.2, borderRadius: 1,
-            color: d === today ? '#05060f' : '#cdd3ee',
-            fontWeight: d === today ? 800 : 400,
-            background: d === today ? '#7aa2ff' : 'transparent',
+            fontFamily: MONO, textAlign: 'center', fontSize: 10, py: 0.2,
+            color: d === today ? '#fff' : '#cdd3ee',
+            fontWeight: d === today ? 700 : 400,
+            background: d === today ? ACCENT : 'transparent',
+            borderRadius: '2px',
           }}>
             {d || ''}
           </Box>
@@ -209,11 +262,12 @@ function NotesWidget({ config, onConfig }) {
       multiline
       value={config.text || ''}
       onChange={(e) => onConfig({ text: e.target.value })}
-      placeholder="Jot something down…"
+      placeholder="JOT SOMETHING DOWN…"
       sx={{
         width: '100%', height: '100%', alignItems: 'flex-start',
-        color: '#e6e9f5', fontSize: 13,
+        color: '#e6e9f5', fontFamily: MONO, fontSize: 12, lineHeight: 1.5,
         '& textarea': { height: '100% !important' },
+        '& textarea::placeholder': { letterSpacing: 1, opacity: 0.5 },
       }}
     />
   );
@@ -232,34 +286,39 @@ function LinksWidget({ config, onConfig, onOpen }) {
   const remove = (idx) => onConfig({ links: links.filter((_, i) => i !== idx) });
 
   return (
-    <Stack sx={{ height: '100%' }} spacing={0.5}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
       <Box sx={{ flex: 1, overflow: 'auto' }}>
         {links.length === 0 && (
-          <Typography variant="caption" sx={{ color: '#6b7299' }}>No links yet — add one below.</Typography>
+          <Typography sx={{ fontFamily: MONO, fontSize: 10, color: '#5b6385', letterSpacing: 1 }}>
+            NO LINKS YET — ADD BELOW
+          </Typography>
         )}
         {links.map((l, i) => (
-          <Stack key={i} direction="row" alignItems="center" spacing={0.5}>
+          <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Box component="span" sx={{ color: ACCENT, fontFamily: MONO, fontSize: 11 }}>›</Box>
             <Typography
               onClick={() => onOpen?.(l.url)}
-              sx={{ flex: 1, fontSize: 12, color: '#7aa2ff', cursor: 'pointer', overflow: 'hidden',
-                    textOverflow: 'ellipsis', whiteSpace: 'nowrap', '&:hover': { textDecoration: 'underline' } }}
+              sx={{ flex: 1, fontFamily: MONO, fontSize: 12, color: '#cdd3ee', cursor: 'pointer',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                '&:hover': { color: '#fff' } }}
             >
               {l.label}
             </Typography>
-            <IconButton size="small" onClick={() => remove(i)}><CloseIcon sx={{ fontSize: 13 }} /></IconButton>
-          </Stack>
+            <IconButton size="small" onClick={() => remove(i)}><CloseIcon sx={{ fontSize: 12 }} /></IconButton>
+          </Box>
         ))}
       </Box>
-      <Stack direction="row" spacing={0.5}>
-        <TextField variant="standard" placeholder="Name" value={label}
-          onChange={(e) => setLabel(e.target.value)} sx={{ flex: 1, '& input': { fontSize: 11, color: '#e6e9f5' } }} />
-        <TextField variant="standard" placeholder="url" value={url}
+      <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <TextField variant="standard" placeholder="NAME" value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          sx={{ flex: 1, '& input': { fontFamily: MONO, fontSize: 11, color: '#e6e9f5' } }} />
+        <TextField variant="standard" placeholder="URL" value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && add()}
-          sx={{ flex: 1, '& input': { fontSize: 11, color: '#e6e9f5' } }} />
-        <IconButton size="small" onClick={add}><AddIcon sx={{ fontSize: 15, color: '#7aa2ff' }} /></IconButton>
-      </Stack>
-    </Stack>
+          sx={{ flex: 1, '& input': { fontFamily: MONO, fontSize: 11, color: '#e6e9f5' } }} />
+        <IconButton size="small" onClick={add}><AddIcon sx={{ fontSize: 15, color: ACCENT }} /></IconButton>
+      </Box>
+    </Box>
   );
 }
 
@@ -278,17 +337,19 @@ function WorldClockWidget({ config, onConfig }) {
   const zoneLabel = config.zone || 'New York';
   const zone = ZONES.find((z) => z.label === zoneLabel) || ZONES[1];
   return (
-    <Stack alignItems="center" justifyContent="center" sx={{ height: '100%' }} spacing={1}>
-      <Typography sx={{ fontSize: 30, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#e6e9f5' }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.75 }}>
+      <Typography sx={{ fontFamily: MONO, fontWeight: 700, fontSize: 'clamp(24px, 4vw, 36px)',
+        color: '#e6e9f5', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
         {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: zone.tz })}
       </Typography>
       <Select
         variant="standard" value={zoneLabel}
         onChange={(e) => onConfig({ zone: e.target.value })}
-        sx={{ fontSize: 12, color: '#9aa3c7', '& .MuiSelect-icon': { color: '#9aa3c7' } }}
+        sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#9aa3c7',
+          '& .MuiSelect-icon': { color: ACCENT } }}
       >
-        {ZONES.map((z) => <MenuItem key={z.label} value={z.label} sx={{ fontSize: 12 }}>{z.label}</MenuItem>)}
+        {ZONES.map((z) => <MenuItem key={z.label} value={z.label} sx={{ fontFamily: MONO, fontSize: 12 }}>{z.label}</MenuItem>)}
       </Select>
-    </Stack>
+    </Box>
   );
 }

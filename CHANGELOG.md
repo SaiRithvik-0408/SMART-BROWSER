@@ -10,6 +10,18 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ### Added
 
+- **Home page redesign (Nothing-UI inspired)**: monospace type, uppercase
+  labels, flat black surfaces, dotted-grid texture, single red accent.
+- **Resizable, grid-based widgets**: each widget has a resize control that
+  cycles size presets (S / M / L / XL) via CSS-grid column + row spans; layout
+  persists to `localStorage` (`smartbrowser.widgets.v2`).
+- **Favorites header**: an editable bar at the top of the home page to add /
+  remove favorite sites (with favicons), persisted to
+  `localStorage` (`smartbrowser.favorites.v1`).
+- **News feed**: a "Top Stories" section appears as you scroll the home page,
+  pulled from the free, key-less, CORS-enabled Hacker News API; click a card to
+  open the story in a tab.
+
 - **Built-in ad / tracker blocker** (`electron/adblock.js`).
   - Network-level blocking via `session.webRequest.onBeforeRequest` against a
     built-in list of ~120 ad / analytics / tracker hosts (parent-domain aware).
