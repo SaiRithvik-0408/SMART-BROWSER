@@ -8,6 +8,31 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.37] - 2026-05-29
+
+### Changed — Apps widget suite picker is now a proper dropdown
+
+The Apps-widget popover used to have a small chip in the top-right that
+cycled through suites (`Google → Microsoft → All → Mobile → Google`).
+To jump from Google to Mobile you had to click it three times, and the
+chip showed the NEXT suite's name rather than the current one — which
+was confusing.
+
+- The chip is now a pill that shows the **current** suite name plus a
+  `KeyboardArrowDown` chevron.
+- Clicking it opens a `Menu` listing all four suites with their
+  signature accent color and app counts; click any row to switch
+  directly. The active suite is highlighted.
+- Chevron flips to `KeyboardArrowUp` while the menu is open as a hint
+  that another click closes it.
+- Menu's `paper` swallows `mouseDown` so opening it inside the
+  already-open Apps popover doesn't trigger a "clicked outside" close
+  on the parent.
+
+Files: `frontend/src/components/Widgets.jsx` (`AppsWidget` —
+`KeyboardArrowDownIcon`/`KeyboardArrowUpIcon` imports plus new
+`suiteMenuAnchor` state and the rewritten picker row).
+
 ## [v1.0.36] - 2026-05-29
 
 ### Fixed — Zoom finally works on the home / new-tab page

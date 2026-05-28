@@ -22,6 +22,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import BoltIcon from '@mui/icons-material/Bolt';
 import AppsIcon from '@mui/icons-material/Apps';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { motion } from 'framer-motion';
 import { proxyUrlFor } from '../api/client';
 import GridLayout from 'react-grid-layout';
@@ -2017,12 +2019,18 @@ const SUITE_ORDER = ['google', 'microsoft', 'all', 'mobile'];
 function AppsWidget({ config, onConfig, onOpen }) {
   const suiteKey = SUITE_ORDER.includes(config.suite) ? config.suite : 'google';
   const suite = SUITES[suiteKey];
-  const nextSuiteIdx = (SUITE_ORDER.indexOf(suiteKey) + 1) % SUITE_ORDER.length;
-  const nextSuite = SUITE_ORDER[nextSuiteIdx];
   const [anchorEl, setAnchorEl] = useState(null);
   const open = Boolean(anchorEl);
   const close = () => setAnchorEl(null);
   const launch = (url) => { close(); onOpen(url); };
+  // Suite-picker dropdown lives inside the popover. Open it with the
+  // chevron toggle so the user can jump straight to any suite instead of
+  // cycling through them one at a time — was a cycle-only chip before.
+  const [suiteMenuAnchor, setSuiteMenuAnchor] = useState(null);
+  const suiteMenuOpen = Boolean(suiteMenuAnchor);
+  const openSuiteMenu  = (e) => setSuiteMenuAnchor(e.currentTarget);
+  const closeSuiteMenu = () => setSuiteMenuAnchor(null);
+  const pickSuite = (id) => { onConfig({ suite: id }); closeSuiteMenu(); };
 
   return (
     <Box sx={{
@@ -2084,27 +2092,74 @@ function AppsWidget({ config, onConfig, onOpen }) {
           },
         }}
       >
-        {/* Suite toggle row — cycles Google → Microsoft → All → Mobile → Google. */}
+        {/* Suite picker row. The right-hand pill shows the CURRENT suite
+            with a chevron toggle — clicking opens a small menu of all
+            available suites so the user can jump directly to one instead
+            of cycling through them. The chevron flips to "up" when the
+            menu is open as a hint that another click closes it. */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
           <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 2, color: '#9aa3c7',
             textTransform: 'uppercase' }}>
             {suite.label} Apps
           </Typography>
           <Box
-            onClick={() => onConfig({ suite: nextSuite })}
+            onClick={suiteMenuOpen ? closeSuiteMenu : openSuiteMenu}
             sx={{
-              display: 'inline-flex', alignItems: 'center', gap: 0.5, cursor: 'pointer',
-              px: 1, py: 0.4, borderRadius: 999,
+              display: 'inline-flex', alignItems: 'center', gap: 0.25, cursor: 'pointer',
+              pl: 1, pr: 0.5, py: 0.4, borderRadius: 999,
               fontFamily: MONO, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase',
               color: '#e6e9f5',
-              background: 'rgba(255,255,255,0.05)',
-              border: `1px solid ${SUITES[nextSuite].accent}88`,
+              background: suiteMenuOpen ? `${suite.accent}22` : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${suite.accent}88`,
               transition: 'background 140ms ease',
-              '&:hover': { background: `${SUITES[nextSuite].accent}22` },
+              '&:hover': { background: `${suite.accent}22` },
+              userSelect: 'none',
             }}
+            title="Switch app suite"
           >
-            ↻ {SUITES[nextSuite].label}
+            <span>{suite.label}</span>
+            {suiteMenuOpen
+              ? <KeyboardArrowUpIcon   sx={{ fontSize: 16, color: suite.accent }} />
+              : <KeyboardArrowDownIcon sx={{ fontSize: 16, color: suite.accent }} />}
           </Box>
+          <Menu
+            anchorEl={suiteMenuAnchor} open={suiteMenuOpen} onClose={closeSuiteMenu}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            // The menu lives inside an already-open Popover. Stop mouseDown
+            // bubbling so the parent Popover doesn't treat clicks on menu
+            // items as "clicked outside" and close itself.
+            slotProps={{ paper: { onMouseDown: (e) => e.stopPropagation(),
+              sx: { mt: 0.5, minWidth: 160, background: 'rgba(8,9,14,0.96)',
+                border: `1px solid ${suite.accent}55`, borderRadius: 1.5,
+                backdropFilter: 'blur(8px)' } } }}
+          >
+            {SUITE_ORDER.map((id) => {
+              const s = SUITES[id];
+              const active = id === suiteKey;
+              return (
+                <MenuItem
+                  key={id} dense onClick={() => pickSuite(id)} selected={active}
+                  sx={{
+                    fontFamily: MONO, fontSize: 11, letterSpacing: 1,
+                    textTransform: 'uppercase', color: active ? s.accent : '#e6e9f5',
+                    gap: 1,
+                    '&.Mui-selected':       { background: `${s.accent}1a` },
+                    '&.Mui-selected:hover': { background: `${s.accent}26` },
+                  }}
+                >
+                  {/* Color dot so each suite is visually distinct in the list. */}
+                  <Box sx={{ width: 8, height: 8, borderRadius: '50%',
+                    background: s.accent, flexShrink: 0 }} />
+                  {s.label}
+                  <Box sx={{ flex: 1 }} />
+                  <Typography sx={{ fontFamily: MONO, fontSize: 9, color: '#7a82a8' }}>
+                    {s.apps.length}
+                  </Typography>
+                </MenuItem>
+              );
+            })}
+          </Menu>
         </Box>
 
         {/* Tile grid — auto-fits with comfortable touch targets. */}
