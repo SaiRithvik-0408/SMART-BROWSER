@@ -4,9 +4,18 @@ node_modules/
 
 # Build output
 dist/
-build/
 frontend/dist/
 dist_electron/
+
+# Ignore everything in build/ EXCEPT the committed icon assets. We use
+# build/* (not build/) so the re-include rules below actually apply —
+# git won't recurse into a fully-excluded directory.
+build/*
+!build/icon.png
+!build/icon.ico
+!build/icon-128.png
+!build/icon-256.png
+!build/icon-512.png
 
 # Editor / OS
 **/.DS_Store

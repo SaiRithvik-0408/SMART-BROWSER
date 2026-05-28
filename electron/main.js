@@ -395,6 +395,37 @@ function setAllVisible(visible) {
 }
 
 // ====================  Window  ==============================================
+
+// Resolve the runtime icon path. In dev we point at the source PNG (which is
+// always present in the repo); in a packaged app electron-builder ships the
+// .ico under resources/build/, but the `extraResources`-free root is also
+// fine for the BrowserWindow icon — Electron tolerates either format on
+// Windows. We try a few likely paths and fall back to undefined if none are
+// found (so the build doesn't crash on developers who haven't run
+// `node scripts/build-icons.js` yet).
+function resolveAppIcon() {
+  // Windows really wants a multi-resolution .ico for the BrowserWindow
+  // (titlebar / taskbar / alt-tab); everywhere else prefer the high-res PNG.
+  const isWin = process.platform === 'win32';
+  const names = isWin
+    ? ['icon.ico', 'icon.png']
+    : ['icon.png', 'icon.ico'];
+  const roots = [
+    path.join(__dirname, '..', 'build'),
+    process.resourcesPath ? path.join(process.resourcesPath, 'build') : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'build') : null,
+  ].filter(Boolean);
+  const fs = require('node:fs');
+  for (const root of roots) {
+    for (const name of names) {
+      const p = path.join(root, name);
+      try { if (fs.existsSync(p)) return p; } catch {}
+    }
+  }
+  return undefined;
+}
+const APP_ICON_PATH = resolveAppIcon();
+
 function createWindow() {
   // Brave-style integrated tab strip: hide the native title bar and let the
   // OS draw min/max/close as a transparent overlay (right side on Windows /
@@ -404,6 +435,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400, height: 900, minWidth: 900, minHeight: 600,
     title: 'SmartBrowser', backgroundColor: '#05060f',
+    icon: APP_ICON_PATH,
     autoHideMenuBar: true, show: false,
     frame: isMac ? true : false,                          // Win/Linux: chromeless
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
@@ -573,6 +605,16 @@ ipcMain.handle('extensions:install-crx', async (e) => {
 });
 ipcMain.handle('extensions:remove',      (_e, id)               => extensions.remove(id));
 ipcMain.handle('extensions:set-enabled', (_e, { id, enabled })  => extensions.setEnabled(id, enabled));
+
+// On Windows the OS groups taskbar buttons by AppUserModelID. Without an
+// explicit ID, dev runs of an Electron app inherit the default Electron ID
+// and show up as "Electron" in the taskbar / start menu / jump lists. Set
+// this BEFORE the first window is created so the very first taskbar entry
+// uses the right name + icon. Packaged builds get this set automatically
+// from build.appId, but dev runs still need the manual call.
+if (process.platform === 'win32' && app.setAppUserModelId) {
+  app.setAppUserModelId('com.smartbrowser.app');
+}
 
 // ====================  Lifecycle  ===========================================
 app.whenReady().then(() => {

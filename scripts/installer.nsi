@@ -24,6 +24,9 @@ Unicode true
 !ifndef OUTFILE
   !define OUTFILE "dist_electron\SmartBrowser-Setup.exe"
 !endif
+!ifndef ICONFILE
+  !define ICONFILE "build\icon.ico"
+!endif
 
 !define APP_NAME    "SmartBrowser"
 !define APP_EXE     "SmartBrowser.exe"
@@ -40,8 +43,15 @@ ShowInstDetails hide
 ShowUninstDetails hide
 BrandingText "${APP_NAME} ${VERSION}"
 
+; Installer and uninstaller executable icons — same source as the app .ico
+; built by scripts/build-icons.js.
+Icon         "${ICONFILE}"
+UninstallIcon "${ICONFILE}"
+
 !include "MUI2.nsh"
 
+!define MUI_ICON "${ICONFILE}"
+!define MUI_UNICON "${ICONFILE}"
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "Launch ${APP_NAME}"

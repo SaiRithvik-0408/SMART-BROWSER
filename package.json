@@ -1,6 +1,6 @@
 {
   "name": "smart-browser",
-  "version": "1.0.0",
+  "version": "1.0.29",
   "description": "SmartBrowser — privacy-first desktop browser with built-in VPN, IP masking, and URL/website masking.",
   "main": "electron/main.js",
   "scripts": {
@@ -21,19 +21,24 @@
     "cross-env": "^7.0.3",
     "electron": "^31.4.0",
     "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5",
     "wait-on": "^7.2.0"
   },
   "build": {
     "appId": "com.smartbrowser.app",
     "productName": "SmartBrowser",
     "directories": {
-      "output": "dist_electron"
+      "output": "dist_electron",
+      "buildResources": "build"
     },
     "compression": "normal",
     "asar": true,
     "files": [
       "electron/**",
       "frontend/dist/**",
+      "build/icon.png",
+      "build/icon.ico",
       "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
       "!**/node_modules/*/{test,tests,__tests__,docs,doc,example,examples}/**",
       "!**/node_modules/*/{*.ts,*.map,.eslintrc,.npmignore,.travis.yml,.editorconfig,LICENSE,license}",
@@ -81,14 +86,22 @@
           ]
         }
       ],
+      "icon": "build/icon.ico",
       "signAndEditExecutable": false,
       "artifactName": "SmartBrowser-${version}-win-x64.${ext}"
     },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "build/icon.png"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
     }
   },
   "dependencies": {

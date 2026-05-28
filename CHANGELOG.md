@@ -8,6 +8,55 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.29] - 2026-05-29
+
+### Fixed — App icon and Task Manager identity
+
+Two long-standing branding bugs are finally fixed:
+
+- **App icon is no longer the default Electron icon.** A real SmartBrowser
+  icon ships with the build — an "SB" shield monogram with an orbiting
+  globe on a dark navy background. It's used everywhere Windows asks for
+  an icon: window titlebar, taskbar, Alt-Tab, Start Menu, installer
+  header, uninstaller, and `Add/Remove Programs`.
+- **Task Manager now shows "SmartBrowser" instead of "Electron".** The
+  release pipeline already rewrote the PE version-info resource (which
+  drives Task Manager's *Name* column), but it was missing two pieces:
+  the icon resource and the `AppUserModelId` call. Both are now in
+  place, so taskbar grouping, jump lists, and pinning all attribute to
+  SmartBrowser even in `npm start` dev runs.
+
+### How it's wired
+
+1. `scripts/build-icons.js` (new) takes a single source PNG, center-crops
+   it square, and emits `build/icon.png` (512×512), `build/icon.ico`
+   (multi-resolution 16–256), plus explicit 128/256 PNGs for shortcuts.
+   These artifacts are committed so CI doesn't need `sharp` /
+   `png-to-ico` at build time.
+2. `package.json` now declares `build.win.icon`, `build.mac.icon`,
+   `build.linux.icon`, and a full `build.nsis` block pointing the
+   installer/uninstaller icons at `build/icon.ico`.
+3. `electron/main.js` resolves the icon at runtime (`resolveAppIcon`)
+   and passes it to every `BrowserWindow`. It also calls
+   `app.setAppUserModelId('com.smartbrowser.app')` on Windows so dev
+   runs aren't grouped under "Electron".
+4. The release workflow's `rcedit` step gains `--set-icon build/icon.ico`
+   alongside the existing version-info writes, so the icon is baked
+   into `SmartBrowser.exe` itself (visible in Explorer and pinned
+   shortcuts).
+5. `scripts/installer.nsi` accepts a new `/DICONFILE=` parameter and
+   uses it for `Icon`, `UninstallIcon`, `MUI_ICON`, and `MUI_UNICON`.
+
+### Files changed
+
+- `scripts/build-icons.js` (new)
+- `build/icon.png`, `build/icon.ico`, `build/icon-128.png`, `build/icon-256.png` (new)
+- `assets/smartbrowser-icon-src.png` (new) — source for re-running the script
+- `package.json` — icon paths, NSIS config, dev deps (`sharp`, `png-to-ico`)
+- `electron/main.js` — `resolveAppIcon`, `BrowserWindow.icon`, `setAppUserModelId`
+- `scripts/installer.nsi` — `/DICONFILE=` parameter, `Icon` / `UninstallIcon` / `MUI_ICON`
+- `.github/workflows/release.yml` — `rcedit --set-icon`, `makensis /DICONFILE`
+
 ## [v1.0.28] - 2026-05-29
 
 ### Changed — Notes editor is now a real WYSIWYG with inline images
