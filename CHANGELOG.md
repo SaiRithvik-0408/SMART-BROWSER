@@ -8,6 +8,41 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.28] - 2026-05-29
+
+### Changed — Notes editor is now a real WYSIWYG with inline images
+
+The Notes panel + widget editor were both rewritten on top of a
+`contentEditable` div instead of a textarea. The user-facing effects:
+
+- **Images now appear inline at the cursor position**, exactly where you
+  paste / drop them — no separate gallery strip at the bottom. Caret-aware
+  drop uses `caretRangeFromPoint` so the image lands at the drop coordinates.
+- **Click any image to open a full-screen lightbox preview.** Click anywhere
+  outside (or hit the × / Esc) to dismiss. The lightbox is rendered as a
+  sibling of the Notes panel so it doesn't get clipped by the panel
+  scroll container.
+- **"Add image" toolbar button** inserts at the last cursor position (we
+  save the selection on blur so picking files doesn't lose context).
+- Plain-text paste from web pages still strips formatting — only IMG and
+  TEXT make it through the paste handler.
+- Notes widget on the home page mirrors all of this — same paste / insert
+  behavior, and clicking any inline image jumps to the full panel.
+
+### Migrations & compatibility
+
+- Legacy notes with the old `{ content: 'plain text', images: [{src,alt}] }`
+  shape are rendered as HTML on display (text → `<p>` paragraphs + images
+  appended) and migrated to the new HTML-in-content shape on the next save.
+  No data is lost; `images[]` is cleared after migration since images now
+  live inline in `content`.
+
+### Files
+
+- Changed: `frontend/src/components/NotesPanel.jsx` (full rewrite — editor,
+  lightbox, migration helper),
+  `frontend/src/components/Widgets.jsx` (NotesWidget rewritten to match).
+
 ## [v1.0.27] - 2026-05-29
 
 ### Fixed

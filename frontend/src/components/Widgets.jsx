@@ -426,29 +426,73 @@ function CalendarWidget() {
   );
 }
 
-// NotesWidget shows ONE note from the shared notes store (the same data the
-// Notes panel manages). The widget config stores `noteId`; if none is set, we
-// fall back to the most recently updated note. Editing here writes through
-// the IPC API, so changes show up in the panel and vice versa.
-//
-// Image strategy:
-//   • Paste an image from the clipboard → it's added to the note's images
-//     array as a data: URI and rendered as a thumbnail strip below the text.
-//   • The "Open in Notes" button pops the full panel jumped to this note for
-//     image management, larger editing surface, etc.
+// Build the same HTML view used by the panel — see NotesPanel.jsx for the
+// canonical implementation. Inlined here so the widget doesn't pull in the
+// (heavier) panel module.
+function widgetNoteToHtml(note) {
+  if (!note) return '';
+  const raw = note.content || '';
+  if (/<\w+/.test(raw)) return raw;
+  const esc = (s) => String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const text = raw.split(/\n{2,}/).map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('') || '<p><br></p>';
+  const imgs = (note.images || []).map((i) =>
+    `<p><img class="sb-note-img" src="${String(i.src).replace(/"/g, '&quot;')}" alt=""></p>`
+  ).join('');
+  return text + imgs;
+}
+
+// Insert an <img> at the current selection inside a contentEditable. Mirror
+// of NotesPanel.insertNodeIntoEditor so the widget's paste behavior matches.
+function insertInlineImage(editor, src, alt, savedRange) {
+  const img = document.createElement('img');
+  img.src = src;
+  img.alt = alt || '';
+  img.draggable = false;
+  img.className = 'sb-note-img';
+  img.style.maxWidth = '100%';
+  img.style.borderRadius = '4px';
+  img.style.display = 'inline-block';
+  img.style.cursor = 'pointer';
+  img.style.margin = '2px 0';
+  editor.focus();
+  const sel = window.getSelection();
+  let range;
+  if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+    range = sel.getRangeAt(0);
+  } else if (savedRange && editor.contains(savedRange.startContainer)) {
+    range = savedRange.cloneRange();
+  } else {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+  range.deleteContents();
+  range.insertNode(img);
+  range.setStartAfter(img);
+  range.collapse(true);
+  if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+}
+
+// NotesWidget mirrors the shared notes store the panel uses. It IS a mini
+// editor: contentEditable + inline image insertion at the cursor, exactly
+// like the panel. Clicking any inline image opens the full Notes panel
+// jumped to this note (the lightbox lives there to keep this widget small).
 function NotesWidget({ config, onConfig }) {
   const [notes, setNotes] = useState([]);
-  const [text, setText] = useState('');
-  const [savedTick, setSavedTick] = useState(0);
+  const [dirty, setDirty] = useState(false);
+  const editorRef = React.useRef(null);
   const saveTimerRef = React.useRef(null);
-  const inflightIdRef = React.useRef(null);
+  const loadedNoteIdRef = React.useRef(null);
+  const draftRef = React.useRef('');
+  const savedRangeRef = React.useRef(null);
 
-  // Pick which note the widget edits. Falls back to most recent.
   const noteId = config.noteId || notes[0]?.id || null;
   const note   = notes.find((n) => n.id === noteId) || null;
 
   const reload = async () => {
-    if (!sbAPI?.notes) return null;
+    if (!sbAPI?.notes) return [];
     const list = await sbAPI.notes.list();
     setNotes(list);
     return list;
@@ -456,60 +500,88 @@ function NotesWidget({ config, onConfig }) {
 
   useEffect(() => { reload(); }, []);
 
-  // Whenever the chosen note changes (different id, or someone else edited
-  // it via the panel), pull its text back into the local input.
+  // Load HTML into the editor on note-change, OR when the panel edited the
+  // same note out-of-band (we re-sync only when our local draft is clean).
   useEffect(() => {
-    if (note && inflightIdRef.current !== note.id) {
-      setText(note.content || '');
+    const el = editorRef.current;
+    if (!el || !note) return;
+    if (loadedNoteIdRef.current === note.id) {
+      if (!dirty && draftRef.current !== (note.content || '')) {
+        el.innerHTML = widgetNoteToHtml(note);
+        draftRef.current = el.innerHTML;
+      }
+      return;
     }
-  }, [note?.id, note?.updatedAt]);
+    loadedNoteIdRef.current = note.id;
+    el.innerHTML = widgetNoteToHtml(note);
+    draftRef.current = el.innerHTML;
+    setDirty(false);
+  }, [note?.id, note?.content, note?.updatedAt]);
 
-  // Debounced write-through to the shared store.
-  const queueSave = (next) => {
-    if (!noteId) return;
+  useEffect(() => {
+    if (!dirty || !noteId) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    inflightIdRef.current = noteId;
     saveTimerRef.current = setTimeout(async () => {
-      await sbAPI.notes.update(noteId, { content: next });
-      inflightIdRef.current = null;
-      setSavedTick((t) => t + 1);
+      await sbAPI.notes.update(noteId, { content: draftRef.current, images: [] });
+      setDirty(false);
       reload();
-    }, 600);
+    }, 700);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [dirty, noteId]);
+
+  const onInput = () => {
+    draftRef.current = editorRef.current?.innerHTML || '';
+    setDirty(true);
+  };
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)) {
+      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+  const onPaste = async (e) => {
+    if (!sbAPI?.notes || !noteId) return;
+    const items = Array.from(e.clipboardData?.items || []);
+    const imgs  = items.filter((it) => it.type && it.type.startsWith('image/'));
+    if (imgs.length > 0) {
+      e.preventDefault();
+      for (const it of imgs) {
+        const f = it.getAsFile();
+        if (!f) continue;
+        const src = await new Promise((resolve) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result || ''));
+          fr.readAsDataURL(f);
+        });
+        insertInlineImage(editorRef.current, src, f.name, savedRangeRef.current);
+      }
+      onInput();
+      return;
+    }
+    const text = e.clipboardData?.getData('text/plain');
+    if (text) {
+      e.preventDefault();
+      document.execCommand('insertText', false, text);
+      onInput();
+    }
+  };
+  const onEditorClick = (e) => {
+    if (e.target.tagName === 'IMG' && e.target.classList.contains('sb-note-img')) {
+      window.dispatchEvent(new CustomEvent('sb:open-notes', { detail: { noteId } }));
+    }
   };
 
   const createAndUse = async () => {
     const created = await sbAPI.notes.create({ title: 'Quick note', content: '' });
     await reload();
+    loadedNoteIdRef.current = null;
     onConfig({ noteId: created.id });
   };
-
-  const handlePaste = async (e) => {
-    if (!sbAPI?.notes || !noteId) return;
-    const items = Array.from(e.clipboardData?.items || []);
-    const imgs  = items.filter((it) => it.type && it.type.startsWith('image/'));
-    if (!imgs.length) return;
-    e.preventDefault();
-    const dataUrls = await Promise.all(imgs.map((it) => new Promise((resolve) => {
-      const f = it.getAsFile();
-      if (!f) return resolve(null);
-      const fr = new FileReader();
-      fr.onload = () => resolve({ id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, src: String(fr.result || ''), alt: f.name || 'image' });
-      fr.readAsDataURL(f);
-    })));
-    const newImgs = dataUrls.filter(Boolean);
-    if (!newImgs.length) return;
-    const next = [...(note?.images || []), ...newImgs];
-    await sbAPI.notes.update(noteId, { images: next });
-    reload();
-  };
-
   const openInPanel = () => {
     window.dispatchEvent(new CustomEvent('sb:open-notes', { detail: { noteId } }));
   };
 
   if (!sbAPI?.notes) {
-    // Browser dev mode (no Electron) — fall back to local-only buffer so the
-    // widget still works in the dev server.
     return (
       <InputBase
         multiline
@@ -537,7 +609,7 @@ function NotesWidget({ config, onConfig }) {
           <Select
             value={noteId || ''}
             variant="standard" disableUnderline
-            onChange={(e) => onConfig({ noteId: e.target.value })}
+            onChange={(e) => { loadedNoteIdRef.current = null; onConfig({ noteId: e.target.value }); }}
             sx={{ fontSize: 10, color: ACCENT, fontFamily: MONO, '& .MuiSelect-icon': { color: ACCENT } }}
           >
             {notes.map((n) => (
@@ -563,43 +635,25 @@ function NotesWidget({ config, onConfig }) {
           </Button>
         </Box>
       ) : (
-        <>
-          <InputBase
-            multiline
-            value={text}
-            onChange={(e) => { setText(e.target.value); queueSave(e.target.value); }}
-            onPaste={handlePaste}
-            placeholder="JOT SOMETHING DOWN — PASTE IMAGES TOO…"
-            sx={{
-              flex: 1, alignItems: 'flex-start',
-              color: '#e6e9f5', fontFamily: MONO, fontSize: 12, lineHeight: 1.5,
-              '& textarea': { height: '100% !important' },
-              '& textarea::placeholder': { letterSpacing: 1, opacity: 0.5 },
-            }}
-          />
-          {(note.images || []).length > 0 && (
-            <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pt: 0.5,
-              borderTop: `1px dashed ${LINE}` }}>
-              {note.images.slice(0, 6).map((img) => (
-                <Box key={img.id} component="img" src={img.src} alt={img.alt}
-                  onClick={openInPanel}
-                  sx={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 0.5,
-                    cursor: 'pointer', flexShrink: 0, opacity: 0.85,
-                    '&:hover': { opacity: 1 } }}
-                />
-              ))}
-              {note.images.length > 6 && (
-                <Box onClick={openInPanel}
-                  sx={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: 'rgba(255,255,255,0.04)', color: '#9aa3c7',
-                    fontFamily: MONO, fontSize: 11, borderRadius: 0.5, cursor: 'pointer' }}
-                >
-                  +{note.images.length - 6}
-                </Box>
-              )}
-            </Box>
-          )}
-        </>
+        <Box
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          spellCheck={false}
+          onInput={onInput}
+          onPaste={onPaste}
+          onClick={onEditorClick}
+          onKeyUp={saveSelection}
+          onMouseUp={saveSelection}
+          onBlur={saveSelection}
+          sx={{
+            flex: 1, overflow: 'auto', minHeight: 0,
+            outline: 'none',
+            color: '#e6e9f5', fontFamily: MONO, fontSize: 12, lineHeight: 1.55,
+            '& img': { maxWidth: '100%', borderRadius: '4px', cursor: 'pointer', margin: '2px 0' },
+            '& p': { margin: '0 0 4px 0' },
+          }}
+        />
       )}
     </Box>
   );
