@@ -59,8 +59,11 @@ export default function Favorites({ onOpen }) {
 
   return (
     <Box sx={{
+      // Edge-to-edge: zero horizontal padding so the first favorite tile
+      // starts flush against the left edge and the last one runs to the
+      // right edge, matching the rest of the dashboard.
       width: '100%', display: 'flex', alignItems: 'center', gap: 1.5,
-      px: 2, py: 1, mb: 1,
+      px: 0.5, py: 1, mb: 1,
       borderBottom: `1px solid ${LINE}`,
       overflowX: 'auto',
       '&::-webkit-scrollbar': { height: 0 },

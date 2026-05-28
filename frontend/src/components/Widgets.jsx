@@ -317,8 +317,25 @@ function loadLayoutMode() {
 }
 
 // Grid config — keep in sync with the CSS overrides below.
-const ROW_HEIGHT   = 40;       // px per grid row — smaller = smoother resize
-const GRID_MARGIN  = 8;        // px between widgets (and around outer edges)
+//
+// Row height used to be a constant 40 px regardless of how many columns the
+// user picked, which meant the grid "felt" the same at 8 cols vs 30 cols —
+// not what the user expects. The new behavior derives the row height from
+// the cell width: every grid cell is rendered at a fixed 1:2 height-to-width
+// aspect ratio, so cells stay roughly half as tall as they are wide. We
+// clamp inside [16 px, 80 px] so dense grids don't end up with single-pixel
+// rows and sparse grids don't end up with absurdly tall ones.
+const GRID_MARGIN          = 8;        // px between widgets (and around outer edges)
+const ROW_HEIGHT_MIN       = 16;
+const ROW_HEIGHT_MAX       = 80;
+const ROW_HEIGHT_RATIO     = 0.5;      // rowHeight = cellWidth × ratio
+function computeRowHeight(containerWidth, gridCols) {
+  if (!containerWidth || !gridCols) return 40;
+  // react-grid-layout cell-width math: (W - margin * (cols + 1)) / cols
+  const cellWidth = (containerWidth - GRID_MARGIN * (gridCols + 1)) / gridCols;
+  const rh = Math.round(cellWidth * ROW_HEIGHT_RATIO);
+  return Math.max(ROW_HEIGHT_MIN, Math.min(ROW_HEIGHT_MAX, rh));
+}
 
 export default function Widgets({ onOpen }) {
   const [widgets, setWidgets] = useState(loadWidgets);
@@ -343,15 +360,25 @@ export default function Widgets({ onOpen }) {
     try { localStorage.setItem(LAYOUT_MODE_KEY, layoutMode); } catch {}
   }, [layoutMode]);
 
-  // When the user picks a new grid column count, rescale every widget so
-  // its proportional position/width is preserved instead of staying anchored
-  // to the same absolute cell index (which would look broken on more / fewer
-  // columns). Heights/y are untouched.
+  // When the user picks a new grid column count, the available NUMBER of
+  // cells changes — but widgets keep their absolute (x, w) values, so each
+  // widget covers exactly as many cells as it always did. Switching from
+  // 20 to 4 cols means a widget with w=8 now overflows the grid, so we
+  // CLAMP w (and re-anchor x) so it still fits. Heights / y are untouched.
+  // This intentionally differs from the previous behavior (which rescaled
+  // proportionally) — the user wants grid changes to add or remove cells,
+  // not to rescale every widget at once.
   const setGridCols = (next) => {
     const clamped = Math.max(GRID_COL_MIN, Math.min(GRID_COL_MAX, Math.round(Number(next) || DEFAULT_GRID_COLS)));
     setGridColsState((prev) => {
       if (prev === clamped) return prev;
-      setWidgets((all) => rescaleCols(all, prev, clamped));
+      setWidgets((all) => all.map((w) => {
+        if (!w.layout) return w;
+        const newW = Math.max(1, Math.min(w.layout.w || 1, clamped));
+        const newX = Math.max(0, Math.min(w.layout.x || 0, clamped - newW));
+        if (newW === w.layout.w && newX === w.layout.x) return w;
+        return { ...w, layout: { ...w.layout, w: newW, x: newX } };
+      }));
       return clamped;
     });
   };
@@ -577,7 +604,7 @@ export default function Widgets({ onOpen }) {
             className="sb-grid"
             layout={layout}
             cols={gridCols}
-            rowHeight={ROW_HEIGHT}
+            rowHeight={computeRowHeight(containerWidth, gridCols)}
             width={containerWidth}
             margin={[GRID_MARGIN, GRID_MARGIN]}
             containerPadding={[0, 0]}
@@ -1952,7 +1979,19 @@ const SUITES = {
     ],
   },
 };
-const SUITE_ORDER = ['google', 'microsoft', 'mobile'];
+// "All" is a synthesized suite — when the user picks it we render every
+// Google + Microsoft tile in a single combined grid (no Mobile, since the
+// user asked specifically for a "both" mode that shows productivity apps
+// from both Google and Microsoft simultaneously).
+SUITES.all = {
+  label: 'All',
+  accent: '#a78bfa',
+  apps: [
+    ...SUITES.google.apps.map((a) => ({ ...a, _suite: 'google' })),
+    ...SUITES.microsoft.apps.map((a) => ({ ...a, _suite: 'microsoft' })),
+  ],
+};
+const SUITE_ORDER = ['google', 'microsoft', 'all', 'mobile'];
 
 // AppsWidget — collapsed to a single "apps" tile by default (so it lives
 // happily in a 1×1 grid cell). Clicking the tile opens a popover with the
@@ -2015,7 +2054,11 @@ function AppsWidget({ config, onConfig, onOpen }) {
         PaperProps={{
           onMouseDown: (e) => e.stopPropagation(),
           sx: {
-            mt: 0.5, p: 1.25, minWidth: 280, maxWidth: 360,
+            // The combined "All" suite (Google + Microsoft) holds ~24 tiles,
+            // so we let the popover grow a bit when needed instead of
+            // capping at 360 px and squeezing icons.
+            mt: 0.5, p: 1.25, minWidth: 280, maxWidth: 480,
+            maxHeight: '70vh', overflow: 'auto',
             background: 'rgba(8,9,14,0.96)',
             border: `1px solid ${suite.accent}55`,
             borderRadius: 1.5,
@@ -2025,7 +2068,7 @@ function AppsWidget({ config, onConfig, onOpen }) {
           },
         }}
       >
-        {/* Suite toggle row — cycles Google → Microsoft → Mobile → Google. */}
+        {/* Suite toggle row — cycles Google → Microsoft → All → Mobile → Google. */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
           <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 2, color: '#9aa3c7',
             textTransform: 'uppercase' }}>

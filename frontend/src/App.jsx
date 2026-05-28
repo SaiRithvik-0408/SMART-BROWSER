@@ -179,18 +179,25 @@ export default function App() {
     } catch {}
   }, [tabs, activeId]);
 
-  // While an internal overlay is open, hide ALL native WebContentsViews so
-  // the React modal is actually visible (without this, the active tab's
-  // view would render right on top of the modal). Re-activate the current
-  // tab when the overlay closes.
+  // Whenever ANY popup-style chrome is open (internal overlay, Notes
+  // panel, VPN panel), hide every native WebContentsView so the React
+  // overlay is actually visible. Native views always render above HTML,
+  // so without hiding them the panel would be invisible behind the page.
+  //
+  // This intentionally REPLACES the old "shrink the BrowserView via
+  // padding-right" trick — the user explicitly asked for popups that
+  // float on top WITHOUT resizing the website. The site is briefly
+  // hidden while the popup is open and reappears at full size the
+  // moment it closes.
+  const anyOverlayOpen = !!internalOverlay || notesPanelOpen || vpnPanelOpen;
   useEffect(() => {
     if (!inElectron) return;
-    if (internalOverlay) {
+    if (anyOverlayOpen) {
       api.tab.setAllVisible(false);
     } else {
       api.tab.activate(activeId);
     }
-  }, [internalOverlay, activeId]);
+  }, [anyOverlayOpen, activeId]);
 
   // Esc closes any open internal overlay.
   useEffect(() => {
@@ -421,17 +428,12 @@ export default function App() {
           display: 'flex',
           position: 'relative',
           minHeight: 0,                  // critical: lets nested overflow:auto actually scroll
-          // Reserve right-side space for whichever side panel is open so the
-          // native WebContentsView (which always renders ABOVE this HTML) is
-          // shrunk away from the panel area. Without this, panels look like
-          // empty floating headers because the page sits on top of them.
-          // VPN panel: 400 px; Notes panel: 540 px (520 width + a margin).
-          // On narrow viewports the panels go full-width on top of content
-          // so we don't reserve any side space.
-          pr: notesPanelOpen ? { xs: 0, sm: '540px' }
-            : vpnPanelOpen   ? { xs: 0, sm: '400px' }
-            : 0,
-          transition: 'padding-right 180ms ease',
+          // No more right-side reservation for panels. The website always
+          // renders at full width; when a panel/overlay opens, the native
+          // WebContentsView is hidden entirely (see anyOverlayOpen effect
+          // above) so the React panel can render in its place WITHOUT
+          // resizing the page underneath. Closing the panel restores the
+          // page at full size with no reflow.
         }}>
           {tabs.map(t => (
             <Box key={t.id} sx={{ flex: 1, display: t.id === activeId ? 'flex' : 'none', minHeight: 0 }}>

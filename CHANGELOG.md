@@ -8,6 +8,68 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.35] - 2026-05-29
+
+### Changed — Grid column count now adds/removes cells (stops rescaling widgets)
+
+The previous behavior treated the grid-cols picker as a "zoom" — every
+widget's `x` and `w` were proportionally rescaled, so visually nothing
+changed except the row-height. That's the opposite of what the user
+wanted: they want the cols picker to control how many CELLS the screen
+is divided into, and widgets to keep their absolute cell counts.
+
+- `setGridCols` no longer calls `rescaleCols`. Widgets keep their stored
+  `(x, w)`. If the new column count is smaller than a widget's `x + w`,
+  we clamp `w` and re-anchor `x` so the widget still fits.
+- Switching from 20→4 cols makes a widget with `w=4` take the full
+  width; switching to 30 cols makes the same widget take ~13% of the
+  width. That's the behavior the user asked for ("4 implies the width
+  of my laptop is divided in 4 parts").
+
+### Changed — Row height now derives from cell width (1:2 aspect ratio)
+
+The fixed 40 px row height made the grid feel identical at 8 cols vs
+30 cols. `rowHeight` is now `computeRowHeight(containerWidth, gridCols)`
+= `cellWidth × 0.5`, clamped to `[16 px, 80 px]`. Each cell renders
+at a ~1:2 height-to-width aspect ratio (wider than tall), which is
+what the user described ("height and width of the grid is 1:2").
+
+### Changed — True edge-to-edge home page
+
+`HomePage` no longer adds horizontal padding around the dashboard, and
+the `Favorites` bar's outer `px: 2` was dropped to `px: 0.5`. A widget
+pinned to `x = 0` now actually touches the left edge of the new-tab
+page; a widget pinned to `x = cols - w` touches the right edge.
+
+### Added — Apps widget "All" suite (Google + Microsoft combined)
+
+A new fourth suite ("All") synthesizes every Google and Microsoft 365
+tile into one combined launcher, so users who want both productivity
+suites visible at once no longer have to alternate via the cycle
+button. The suite cycle is now Google → Microsoft → All → Mobile →
+Google. The popover also got a `maxHeight: 70vh` so the bigger
+combined grid scrolls cleanly when there are 24 tiles.
+
+### Fixed — Notes / VPN panels are popups; never resize the website again
+
+The Notes and VPN panels used to reserve right-side padding on the
+BrowserView container (`pr: 540px` / `pr: 400px`) so the native
+WebContentsView would shrink to make room for them. The user saw
+the page itself get resized when a panel opened, which is wrong —
+they wanted the panel to float ON TOP and the page to stay at full
+size. (Screenshot: Claude's sign-in page squashed to ~70% width with
+the Notes panel filling the rest.)
+
+- The right-padding reservation is gone. The page always renders at
+  full BrowserView width.
+- A new `anyOverlayOpen` effect hides every native WebContentsView
+  (`api.tab.setAllVisible(false)`) the moment any popup-style chrome
+  opens — Notes panel, VPN panel, or InternalOverlay — so the React
+  panel is actually visible (native views always render above HTML,
+  so without hiding them the panel would be invisible behind the
+  page). Closing the panel re-activates the current tab and the
+  page reappears instantly at its original full size, with no reflow.
+
 ## [v1.0.34] - 2026-05-29
 
 ### Changed — Edge-to-edge widget grid, free placement, custom column count up to 50

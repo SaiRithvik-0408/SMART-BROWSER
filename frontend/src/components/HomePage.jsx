@@ -14,10 +14,11 @@ export default function HomePage({ onOpen }) {
       pt: 1, pb: 6, color: '#e6e9f5', width: '100%',
     }}>
       <Favorites onOpen={onOpen} />
-      {/* Grid is now edge-to-edge — no centered max-width wrapper. The grid
-          itself measures its container and lays out widgets across the
-          full available width. */}
-      <Box sx={{ width: '100%', px: 1.5, boxSizing: 'border-box' }}>
+      {/* True edge-to-edge — zero horizontal padding so widgets (including
+          a widget pinned at x=0) really touch the screen edge. The dotted
+          background and individual widget chrome give enough visual breathing
+          room without an outer gutter. */}
+      <Box sx={{ width: '100%', px: 0, boxSizing: 'border-box' }}>
         <Widgets onOpen={onOpen} />
       </Box>
     </Box>
