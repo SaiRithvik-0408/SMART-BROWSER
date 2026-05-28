@@ -36,6 +36,21 @@ section collects changes that have landed on `main` but are not yet tagged.
   the viewport instead of at the top, giving the favorites header and the
   widget dashboard cleaner separation.
 
+### Changed
+
+- **Brave-style integrated title bar**: the native OS title bar is now hidden
+  (`titleBarStyle: 'hidden'`). On Windows + Linux the standard min/max/close
+  buttons are drawn as a transparent overlay directly inside the tab strip
+  (`titleBarOverlay`), so there's no more dead horizontal bar above the tabs.
+  On macOS the traffic lights sit in the top-left corner. The tab strip is a
+  drag region (window-move works exactly as before); tabs and toolbar buttons
+  are individually opted out of the drag region with `WebkitAppRegion`.
+- **New-tab page is more useful by default**: the hero (logo + tagline +
+  omnibar) was previously sized to fill the whole viewport, which pushed the
+  Widgets dashboard and Economic Times news feed below the fold. The hero is
+  now compact, so widgets and news are visible without scrolling on a 1080p
+  display, while still scrollable for the full feed.
+
 ### Fixed
 
 - **Installer error "Error opening file for writing" when SmartBrowser was

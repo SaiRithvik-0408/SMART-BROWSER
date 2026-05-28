@@ -291,10 +291,24 @@ function setAllVisible(visible) {
 
 // ====================  Window  ==============================================
 function createWindow() {
+  // Brave-style integrated tab strip: hide the native title bar and let the
+  // OS draw min/max/close as a transparent overlay (right side on Windows /
+  // Linux, traffic lights top-left on macOS). The TabsBar component is then
+  // marked as a drag region so the window is still movable.
+  const isMac = process.platform === 'darwin';
   mainWindow = new BrowserWindow({
     width: 1400, height: 900, minWidth: 900, minHeight: 600,
     title: 'SmartBrowser', backgroundColor: '#05060f',
     autoHideMenuBar: true, show: false,
+    frame: isMac ? true : false,                          // Win/Linux: chromeless
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    ...(isMac ? { trafficLightPosition: { x: 12, y: 14 } } : {
+      titleBarOverlay: {
+        color: '#05060f',          // chrome bg behind the buttons
+        symbolColor: '#e6e9f5',    // glyph colour for min/max/close
+        height: 40,
+      },
+    }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

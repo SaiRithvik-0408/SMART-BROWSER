@@ -64,7 +64,7 @@ export default function NewsFeed({ onOpen }) {
   useEffect(() => { load(section); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [section]);
 
   return (
-    <Box sx={{ width: 'min(1100px, 95vw)', mt: 8, pb: 6 }}>
+    <Box sx={{ width: 'min(1100px, 95vw)', mt: 3, pb: 6 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5,
         flexWrap: 'wrap', gap: 1 }}>
         <Typography sx={{ fontFamily: MONO, fontSize: 12, letterSpacing: 3, textTransform: 'uppercase',

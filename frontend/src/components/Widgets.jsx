@@ -87,7 +87,7 @@ export default function Widgets({ onOpen }) {
     setWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, config: { ...w.config, ...patch } } : w)));
 
   return (
-    <Box sx={{ width: 'min(1100px, 95vw)', mt: 7 }}>
+    <Box sx={{ width: 'min(1100px, 95vw)', mt: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5 }}>
         <Typography sx={{ fontFamily: MONO, fontSize: 12, letterSpacing: 3, textTransform: 'uppercase',
           color: '#9aa3c7', display: 'flex', alignItems: 'center', gap: 1 }}>
