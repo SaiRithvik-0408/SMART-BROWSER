@@ -38,6 +38,15 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ### Fixed
 
+- **Installer error "Error opening file for writing" when SmartBrowser was
+  running**: NSIS would refuse to overwrite `SmartBrowser.exe` (and Electron's
+  helper EXEs that share the same name) if any instance was still running,
+  popping an Abort/Retry/Ignore dialog. The installer now runs
+  `taskkill /IM SmartBrowser.exe` (graceful) followed by
+  `taskkill /F /T /IM SmartBrowser.exe` (force + tree) inside `.onInit` AND
+  at the top of the install section, via `nsExec::ExecToLog` so no console
+  window flashes. Works for both silent (auto-update) and interactive
+  (double-click the Setup .exe) installs.
 - **Auto-updater STILL showed a console window (round 2)**: the previous
   fix used a VBS wrapper to hide the initial cmd launch, but every
   `tasklist | find` iteration inside the cmd wait-loop re-flashed through

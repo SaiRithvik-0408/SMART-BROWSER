@@ -55,7 +55,36 @@ BrandingText "${APP_NAME} ${VERSION}"
 
 !insertmacro MUI_LANGUAGE "English"
 
+; -----------------------------------------------------------------------------
+; KillSmartBrowser - terminate any running SmartBrowser.exe processes (incl.
+; Electron renderer/GPU/utility helpers, which all share the same image name)
+; so we can overwrite the EXE without "Error opening file for writing".
+;
+; Runs hidden via nsExec - no console window, works in both silent + UI mode.
+; Two passes: a graceful taskkill, then a force kill + tree kill for any
+; lingering helpers, with a short sleep between to let handles drop.
+; -----------------------------------------------------------------------------
+!macro _KillSmartBrowser
+  DetailPrint "Closing any running SmartBrowser instances..."
+  nsExec::ExecToLog 'taskkill /IM "${APP_EXE}"'
+  Sleep 500
+  nsExec::ExecToLog 'taskkill /F /T /IM "${APP_EXE}"'
+  Sleep 800
+!macroend
+
+Function .onInit
+  !insertmacro _KillSmartBrowser
+FunctionEnd
+
+Function un.onInit
+  !insertmacro _KillSmartBrowser
+FunctionEnd
+
 Section "Install"
+  ; Belt-and-braces: kill again in case the user launched the app between
+  ; the .onInit prompt and clicking "Install".
+  !insertmacro _KillSmartBrowser
+
   ; Remove any previous install in this dir first (clean upgrades).
   RMDir /r "$INSTDIR"
   SetOutPath "$INSTDIR"
