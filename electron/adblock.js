@@ -162,23 +162,96 @@ function shouldBlock(url) {
   return false;
 }
 
-// Cosmetic CSS — hides common ad containers that aren't network-blockable.
+// Cosmetic CSS — hides ad containers and Premium upsells that aren't
+// network-blockable. Uses Chromium's :has() (supported since 105; we ship 124+).
 const COSMETIC_CSS = `
+  /* === YouTube ads === */
   ytd-promoted-sparkles-web-renderer,
+  ytd-promoted-sparkles-text-search-renderer,
   ytd-promoted-video-renderer,
   ytd-display-ad-renderer,
   ytd-ad-slot-renderer,
   ytd-in-feed-ad-layout-renderer,
+  ytd-banner-promo-renderer,
+  ytd-statement-banner-renderer,
+  ytd-merch-shelf-renderer,
+  ytd-action-companion-ad-renderer,
+  ytd-companion-slot-renderer,
+  ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"],
   .ytp-ad-module,
+  .ytp-ad-overlay-slot,
+  .ytp-ad-text-overlay,
+  .video-ads.ytp-ad-module,
+  ytd-reel-video-renderer[is-ad],
   #masthead-ad,
+  #player-ads,
+  #panels ytd-ads-engagement-panel-content-renderer,
+
+  /* === YouTube Premium upsells (the "Remove ads" button etc.) === */
+  yt-mealbar-promo-renderer,
+  ytd-mealbar-promo-renderer,
+  ytd-premium-promo-renderer,
+  ytmusic-mealbar-promo-renderer,
+  ytd-rich-section-renderer:has(ytd-statement-banner-renderer),
+  yt-button-view-model:has([aria-label*="Premium" i]),
+  yt-button-view-model:has([aria-label*="Remove ads" i]),
+  ytd-button-renderer:has([aria-label*="Premium" i]),
+  ytd-button-renderer:has([aria-label*="Remove ads" i]),
+  tp-yt-paper-button[aria-label*="Premium" i],
+  a[href*="/premium"],
+
+  /* === Generic ad slots === */
   ins.adsbygoogle,
   [id^="google_ads_"],
   [id^="div-gpt-ad"],
   [class*="-ad-container"],
   [class*="advertisement"],
-  [aria-label="Advertisement"] {
+  [aria-label="Advertisement"],
+  [aria-label="Sponsored"],
+  [aria-label="Promoted"] {
     display: none !important;
   }
+`;
+
+// Injected JS — catches Premium upsells / "Remove ads" buttons that don't have
+// stable aria-labels. Runs on every relevant page and re-runs as the DOM
+// changes (YouTube renders most UI asynchronously).
+const COSMETIC_JS = `
+(function(){
+  if (window.__sbAdHide) return;
+  window.__sbAdHide = true;
+  var KILL_TEXTS = ['remove ads','try premium','get youtube premium','upgrade to premium','youtube premium'];
+  function sweep(){
+    var nodes = document.querySelectorAll('button, a, yt-button-view-model, ytd-button-renderer, tp-yt-paper-button');
+    for (var i=0;i<nodes.length;i++) {
+      var el = nodes[i];
+      if (el.__sbHidden) continue;
+      var t = (el.textContent||'').trim().toLowerCase();
+      if (!t) continue;
+      for (var j=0;j<KILL_TEXTS.length;j++) {
+        if (t === KILL_TEXTS[j] || (t.length < 40 && t.indexOf(KILL_TEXTS[j]) !== -1)) {
+          el.__sbHidden = true;
+          el.style.display = 'none';
+          // Walk up to a containing renderer and hide it too.
+          var p = el.parentElement, hops = 0;
+          while (p && hops < 5) {
+            if (p.tagName && /-RENDERER$|VIEW-MODEL$/.test(p.tagName)) { p.style.display='none'; break; }
+            p = p.parentElement; hops++;
+          }
+          break;
+        }
+      }
+    }
+  }
+  sweep();
+  var pending = false;
+  var mo = new MutationObserver(function(){
+    if (pending) return;
+    pending = true;
+    setTimeout(function(){ pending = false; sweep(); }, 250);
+  });
+  mo.observe(document.documentElement, { childList: true, subtree: true });
+})();
 `;
 
 function install() {
@@ -194,10 +267,15 @@ function install() {
   });
 }
 
-// Inject cosmetic CSS into a tab's webContents (call on dom-ready).
+// Inject cosmetic CSS + JS into a tab's webContents (call on dom-ready).
+// Skips the React shell (file://) and other non-web pages.
 function applyCosmetic(webContents) {
-  if (!enabled) return;
+  if (!enabled || !webContents || webContents.isDestroyed?.()) return;
+  let url = '';
+  try { url = webContents.getURL(); } catch {}
+  if (!/^https?:/.test(url)) return;
   try { webContents.insertCSS(COSMETIC_CSS); } catch {}
+  try { webContents.executeJavaScript(COSMETIC_JS, true).catch(() => {}); } catch {}
 }
 
 module.exports = {

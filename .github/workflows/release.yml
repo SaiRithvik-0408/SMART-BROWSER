@@ -291,6 +291,32 @@ jobs:
           Write-Host "Renaming electron.exe -> SmartBrowser.exe..."
           Move-Item (Join-Path $unpacked "electron.exe") (Join-Path $unpacked "SmartBrowser.exe") -Force
 
+          # ----- 4b. Rebrand the EXE so Task Manager shows "SmartBrowser" ----
+          # The Electron runtime ships an `electron.exe` whose PE version-info
+          # resource has ProductName=Electron / FileDescription=Electron.
+          # Task Manager + Properties dialog read those, so without rcedit the
+          # process would show as "Electron" instead of "SmartBrowser".
+          $rceditUrl  = 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe'
+          $rceditPath = Join-Path $env:TEMP 'rcedit-x64.exe'
+          if (-not (Test-Path $rceditPath)) {
+            Write-Host "Downloading rcedit..."
+            Invoke-WebRequest -Uri $rceditUrl -OutFile $rceditPath -UseBasicParsing
+          }
+          $smartExe = Join-Path $unpacked "SmartBrowser.exe"
+          # File/Product Version must be 4-part (a.b.c.d) — append ".0".
+          $fileVer = "$appVersion.0"
+          & $rceditPath $smartExe `
+            --set-version-string "ProductName"      "SmartBrowser" `
+            --set-version-string "FileDescription"  "SmartBrowser" `
+            --set-version-string "CompanyName"      "SmartBrowser" `
+            --set-version-string "LegalCopyright"   "Copyright (C) 2026 SmartBrowser" `
+            --set-version-string "OriginalFilename" "SmartBrowser.exe" `
+            --set-version-string "InternalName"     "SmartBrowser" `
+            --set-file-version                       $fileVer `
+            --set-product-version                    $fileVer
+          if ($LASTEXITCODE -ne 0) { throw "rcedit failed with exit code $LASTEXITCODE" }
+          Write-Host "Rebranded SmartBrowser.exe (ProductName / FileDescription set)"
+
           # ----- 5. Rename win-unpacked -> SmartBrowser (installer source) -----
           # Rename-Item's -NewName must be a leaf name, NOT a path, or it errors
           # with "represents a path or device name".

@@ -48,6 +48,19 @@ section collects changes that have landed on `main` but are not yet tagged.
   previously block the loop indefinitely.
 - **App didn't always exit before update**: now calls `app.quit()` followed
   by a force `app.exit(0)` after 1.5 s so the installer can replace files.
+- **Task Manager shows the app as "Electron"**: the Windows packaging step
+  now uses `rcedit` to set the PE version-info resource on
+  `SmartBrowser.exe` (ProductName, FileDescription, CompanyName,
+  OriginalFilename, File/Product Version). Task Manager + the Properties
+  dialog now show **SmartBrowser** instead of Electron.
+- **Window title was "SmartBrowser — Private. Masked. Free." everywhere**:
+  the title now follows the active tab, Brave-style:
+  `"<page title> — SmartBrowser"`, or just `SmartBrowser` on the home tab.
+  Renderer-side title changes can no longer overwrite it.
+- **Ad blocker missed YouTube Premium upsells / "Remove ads" button**: the
+  cosmetic CSS now uses Chromium `:has()` to target `yt-button-view-model`
+  by aria-label, and a small injected MutationObserver also hides Premium
+  CTA elements by text content as YouTube lazy-renders them.
 
 - **Built-in ad / tracker blocker** (`electron/adblock.js`).
   - Network-level blocking via `session.webRequest.onBeforeRequest` against a

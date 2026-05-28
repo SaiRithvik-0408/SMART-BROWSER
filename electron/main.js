@@ -195,6 +195,14 @@ function broadcast(channel, payload) {
   }
 }
 
+// Brave-style window title: "<active tab title> — SmartBrowser" (or just
+// "SmartBrowser" on the home tab / when no tab is loaded).
+function syncWindowTitle(title) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const t = (title || '').trim();
+  mainWindow.setTitle(t ? `${t} \u2014 SmartBrowser` : 'SmartBrowser');
+}
+
 function createTabView(tabId, initialUrl) {
   if (tabs.has(tabId)) return tabs.get(tabId);
   const view = new WebContentsView({
@@ -212,6 +220,9 @@ function createTabView(tabId, initialUrl) {
   const wc = view.webContents;
   // Apply cosmetic ad-hiding CSS once the DOM is ready on every navigation.
   wc.on('dom-ready', () => adblock.applyCosmetic(wc));
+  // Also re-apply after lazy frames load (YouTube renders most chrome
+  // after DOMContentLoaded, so dom-ready alone misses the Premium buttons).
+  wc.on('did-finish-load', () => adblock.applyCosmetic(wc));
   // Redirect legacy hosts (e.g. old.reddit.com -> www.reddit.com) before load.
   wc.on('will-navigate', (event, url) => {
     const normalized = normalizeUrl(url);
@@ -224,7 +235,10 @@ function createTabView(tabId, initialUrl) {
   wc.on('did-stop-loading',  () => broadcast('tab:event', { tabId, type: 'loading', loading: false }));
   wc.on('did-navigate',         (_e, url) => broadcast('tab:event', { tabId, type: 'nav', url }));
   wc.on('did-navigate-in-page', (_e, url) => broadcast('tab:event', { tabId, type: 'nav', url }));
-  wc.on('page-title-updated',   (_e, title) => broadcast('tab:event', { tabId, type: 'title', title }));
+  wc.on('page-title-updated',   (_e, title) => {
+    broadcast('tab:event', { tabId, type: 'title', title });
+    if (tabId === activeTabId) syncWindowTitle(title);
+  });
   wc.on('page-favicon-updated', (_e, favicons) => broadcast('tab:event', { tabId, type: 'favicon', favicon: favicons[0] }));
   wc.setWindowOpenHandler(({ url }) => {
     broadcast('tab:open-new', { url });   // renderer creates a new tab
@@ -254,11 +268,15 @@ function activateTabView(tabId) {
   }
   if (!tabs.has(tabId)) {
     activeTabId = null;
+    syncWindowTitle('');                // home tab — just "SmartBrowser"
     return;
   }
   activeTabId = tabId;
   const t = tabs.get(tabId);
-  if (t) t.view.setBounds(lastBounds);
+  if (t) {
+    t.view.setBounds(lastBounds);
+    try { syncWindowTitle(t.view.webContents.getTitle()); } catch {}
+  }
 }
 
 function setBounds(tabId, bounds) {
@@ -304,6 +322,11 @@ function createWindow() {
   ]));
 
   bindShortcuts(mainWindow.webContents);
+
+  // The React shell's own <title> would otherwise overwrite the window title
+  // every time the renderer re-renders. We manage the window title manually
+  // via syncWindowTitle() based on the active tab.
+  mainWindow.webContents.on('page-title-updated', (e) => e.preventDefault());
 
   const url = isDev
     ? FRONTEND_DEV_URL
