@@ -172,31 +172,55 @@ async function applyProxy({ enabled, host, port, type } = {}) {
 }
 
 // ====================  DevTools shortcuts + context menu  ===================
-function bindShortcuts(contents) {
+// `isShell` toggles the shortcut targeting behavior:
+//   - false (default): shortcuts act on `contents` itself. Used for tab
+//     WebContentsViews — Ctrl+R reloads the tab, Ctrl+S downloads the
+//     tab's URL, etc.
+//   - true: shortcuts act on the ACTIVE TAB rather than `contents`. Used
+//     for mainWindow.webContents (the React shell). Without this, pressing
+//     Ctrl+R while focus is on the omnibox / a panel / the tabs strip
+//     would reload the React shell and wipe the tabs list. Same trick
+//     the zoom shortcuts already use.
+function bindShortcuts(contents, opts = {}) {
+  const isShell = opts.isShell === true;
+  // Resolve the page we should act on at the moment a shortcut fires.
+  // For shell shortcuts, returns the focused tab (or null if no tab is
+  // active — in which case the shortcut is a no-op rather than nuking
+  // the React shell).
+  const targetWc = () => {
+    if (!isShell) return contents;
+    return activeTabWebContents();
+  };
+
   contents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     const ctrlOrCmd = input.control || input.meta;
     const isF12 = input.key === 'F12';
     const isDevtools = ctrlOrCmd && input.shift && (input.key === 'I' || input.key === 'i');
     if (isF12 || isDevtools) {
-      if (contents.isDevToolsOpened()) contents.closeDevTools();
-      else contents.openDevTools({ mode: 'right' });   // Chrome-default: dock to the right
+      const t = targetWc() || contents;
+      if (t.isDevToolsOpened()) t.closeDevTools();
+      else t.openDevTools({ mode: 'right' });
       event.preventDefault();
     }
-    if (ctrlOrCmd && (input.key === 'R' || input.key === 'r')) {
-      contents.reload();
+    if ((ctrlOrCmd && (input.key === 'R' || input.key === 'r')) || input.key === 'F5') {
+      const t = targetWc();
+      if (t) { input.shift ? t.reloadIgnoringCache() : t.reload(); }
       event.preventDefault();
     }
     if (ctrlOrCmd && (input.key === 'S' || input.key === 's')) {
-      try { contents.downloadURL(contents.getURL()); } catch {}
+      const t = targetWc();
+      if (t) { try { t.downloadURL(t.getURL()); } catch {} }
       event.preventDefault();
     }
     if (ctrlOrCmd && (input.key === 'P' || input.key === 'p')) {
-      try { contents.print({ silent: false, printBackground: true }); } catch {}
+      const t = targetWc();
+      if (t) { try { t.print({ silent: false, printBackground: true }); } catch {} }
       event.preventDefault();
     }
     if (ctrlOrCmd && (input.key === 'U' || input.key === 'u')) {
-      try { broadcast('tab:open-new', { url: `view-source:${contents.getURL()}` }); } catch {}
+      const t = targetWc();
+      if (t) { try { broadcast('tab:open-new', { url: `view-source:${t.getURL()}` }); } catch {} }
       event.preventDefault();
     }
     // Zoom shortcuts — always route to the active tab via zoomActiveTab so
@@ -471,7 +495,18 @@ function createWindow() {
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' },
       { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: 'View', submenu: [
-      { role: 'reload' }, { role: 'forceReload' },
+      // Override the default reload roles so the accelerator (Ctrl+R /
+      // Ctrl+Shift+R) NEVER reloads the React shell — which would wipe
+      // the tabs array and any UI state. Always route to the focused
+      // tab via activeTabWebContents().
+      {
+        label: 'Reload', accelerator: 'CmdOrCtrl+R',
+        click: () => { const wc = activeTabWebContents(); if (wc) wc.reload(); },
+      },
+      {
+        label: 'Force Reload', accelerator: 'CmdOrCtrl+Shift+R',
+        click: () => { const wc = activeTabWebContents(); if (wc) wc.reloadIgnoringCache(); },
+      },
       { label: 'Toggle DevTools', accelerator: 'CmdOrCtrl+Shift+I',
         click: () => {
           const target = activeTabId ? tabs.get(activeTabId)?.view.webContents : mainWindow.webContents;
@@ -494,7 +529,7 @@ function createWindow() {
     ] },
   ]));
 
-  bindShortcuts(mainWindow.webContents);
+  bindShortcuts(mainWindow.webContents, { isShell: true });
 
   // The React shell's own <title> would otherwise overwrite the window title
   // every time the renderer re-renders. We manage the window title manually

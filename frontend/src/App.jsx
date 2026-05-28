@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Box } from '@mui/material';
+import { Box, Paper, IconButton, Typography } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import TopBar from './components/TopBar';
 import TabsBar from './components/TabsBar';
 import BrowserView from './components/BrowserView';
@@ -7,6 +8,11 @@ import VpnPanel from './components/VpnPanel';
 import NotesPanel from './components/NotesPanel';
 import ThreeBackground from './components/ThreeBackground';
 import UpdateBanner from './components/UpdateBanner';
+import HistoryPage from './components/HistoryPage';
+import DownloadsPage from './components/DownloadsPage';
+import PasswordsPage from './components/PasswordsPage';
+import SettingsPage from './components/SettingsPage';
+import ExtensionsPage from './components/ExtensionsPage';
 import { VpnApi } from './api/client';
 
 const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
@@ -21,13 +27,77 @@ const newTab = (url = 'home') => ({
   cursor: 0,
 });
 
+// =========================================================================
+// Tab persistence. The React shell can be reloaded for legitimate reasons
+// (post-update relaunch, devtools refresh, manual menu trigger that
+// slipped past our shortcut overrides). Without persistence, every reload
+// drops the entire tab list and the user's open tabs vanish. We snapshot
+// the URLs to localStorage on every change and restore them on boot.
+//
+// We don't try to restore the native WebContentsViews (they're destroyed
+// on shell reload) — the URLs are re-navigated lazily as each tab is
+// activated, which is the same behavior as opening a fresh tab.
+// =========================================================================
+const SESSION_KEY = 'sb.session.v1';
+
+function loadInitialTabs() {
+  if (typeof window === 'undefined') return [newTab('home')];
+  try {
+    const raw = window.localStorage.getItem(SESSION_KEY);
+    if (!raw) return [newTab('home')];
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.tabs) || data.tabs.length === 0) {
+      return [newTab('home')];
+    }
+    const restored = data.tabs.map((t) => ({
+      id: String(_id++),
+      url: t.url || 'home',
+      title: t.title || (t.url === 'home' ? 'New tab' : t.url || 'New tab'),
+      history: Array.isArray(t.history) && t.history.length > 0 ? t.history : [t.url || 'home'],
+      cursor: typeof t.cursor === 'number'
+        ? Math.max(0, Math.min(t.cursor, (t.history?.length || 1) - 1))
+        : 0,
+    }));
+    return restored.length > 0 ? restored : [newTab('home')];
+  } catch {
+    return [newTab('home')];
+  }
+}
+
+function loadInitialActiveIndex() {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const raw = window.localStorage.getItem(SESSION_KEY);
+    if (!raw) return 0;
+    const data = JSON.parse(raw);
+    return typeof data?.activeIndex === 'number' ? data.activeIndex : 0;
+  } catch { return 0; }
+}
+
+// Memoize the boot snapshot so both useState initializers see the SAME
+// freshly-loaded tabs (loadInitialTabs allocates IDs each call, so calling
+// it twice would desync the activeId from the tabs array).
+const BOOT = (() => {
+  const tabs = loadInitialTabs();
+  const idx = Math.max(0, Math.min(loadInitialActiveIndex(), tabs.length - 1));
+  return { tabs, activeId: tabs[idx].id };
+})();
+
 export default function App() {
-  const [tabs, setTabs] = useState([newTab('home')]);
-  const [activeId, setActiveId] = useState(tabs[0].id);
+  const [tabs, setTabs] = useState(BOOT.tabs);
+  const [activeId, setActiveId] = useState(BOOT.activeId);
   const [vpnPanelOpen, setVpnPanelOpen] = useState(false);
   const [vpnStatus, setVpnStatus] = useState({ enabled: false, activeServer: null });
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
   const [notesInitialId, setNotesInitialId] = useState(null);
+  // The "page-as-popup" overlay. When non-null, an internal page (settings,
+  // history, downloads, extensions, passwords) is rendered as a floating
+  // modal ON TOP of whatever the user was viewing, and the native
+  // WebContentsView is temporarily hidden so the overlay is actually
+  // visible (native views always render above HTML). Closing the overlay
+  // re-activates the current tab and the user sees their page again,
+  // exactly as they left it — no navigation, no tab churn.
+  const [internalOverlay, setInternalOverlay] = useState(null);
   // Most-recently-closed tabs, so "Reopen closed tab" can resurrect them.
   const [closedStack, setClosedStack] = useState([]);
 
@@ -87,6 +157,60 @@ export default function App() {
     if (!inElectron) return;
     api.tab.activate(activeId);
   }, [activeId]);
+
+  // Persist the tab strip to localStorage so a shell reload (auto-update
+  // relaunch, accidental Ctrl+R that slipped past, dev refresh, etc) does
+  // not silently lose the user's open tabs. We strip ephemeral fields and
+  // store just enough to re-open each URL on next boot.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const idx = tabs.findIndex(t => t.id === activeId);
+      const payload = {
+        activeIndex: idx < 0 ? 0 : idx,
+        tabs: tabs.map(t => ({
+          url: t.url,
+          title: t.title,
+          history: t.history?.slice(-20) || [t.url],
+          cursor: t.cursor,
+        })),
+      };
+      window.localStorage.setItem(SESSION_KEY, JSON.stringify(payload));
+    } catch {}
+  }, [tabs, activeId]);
+
+  // While an internal overlay is open, hide ALL native WebContentsViews so
+  // the React modal is actually visible (without this, the active tab's
+  // view would render right on top of the modal). Re-activate the current
+  // tab when the overlay closes.
+  useEffect(() => {
+    if (!inElectron) return;
+    if (internalOverlay) {
+      api.tab.setAllVisible(false);
+    } else {
+      api.tab.activate(activeId);
+    }
+  }, [internalOverlay, activeId]);
+
+  // Esc closes any open internal overlay.
+  useEffect(() => {
+    if (!internalOverlay) return;
+    const onKey = (e) => { if (e.key === 'Escape') setInternalOverlay(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [internalOverlay]);
+
+  // Open one of the internal pages as a floating overlay. Closing the
+  // overlay restores the user's current tab — no navigation, no extra
+  // tab on the strip.
+  const openInternal = (name) => setInternalOverlay(name);
+  const closeInternal = () => setInternalOverlay(null);
+
+  // Helper for the BrowserView click-into-tab callback: dismiss any open
+  // overlay first, so clicking the page area always returns to it.
+  const dismissAllOverlays = () => {
+    if (internalOverlay) setInternalOverlay(null);
+  };
 
   // NOTE: don't hide the native views when the VPN panel opens — instead the
   // BrowserView container shrinks (right padding below) so the panel sits in
@@ -289,6 +413,7 @@ export default function App() {
           notesOpen={notesPanelOpen}
           onToggleNotesPanel={() => { setNotesInitialId(null); setNotesPanelOpen(v => !v); }}
           onNewTab={addTab}
+          onOpenInternal={openInternal}
         />
         <UpdateBanner />
         <Box sx={{
@@ -328,7 +453,71 @@ export default function App() {
           onClose={() => setNotesPanelOpen(false)}
           initialNoteId={notesInitialId}
         />
+        <InternalOverlay name={internalOverlay} onClose={closeInternal} onOpen={(u) => { closeInternal(); navigate(u); }} />
       </Box>
+    </Box>
+  );
+}
+
+// =========================================================================
+// InternalOverlay — pops one of the internal pages (settings, history,
+// downloads, extensions, passwords) as a floating modal on top of whichever
+// tab the user was viewing. The active tab's native WebContentsView is
+// hidden by App's useEffect while this is open, so the overlay is actually
+// visible (native views always render above HTML).
+// =========================================================================
+function InternalOverlay({ name, onClose, onOpen }) {
+  if (!name) return null;
+  const titles = {
+    history:    'History',
+    downloads:  'Downloads',
+    passwords:  'Passwords',
+    extensions: 'Extensions',
+    settings:   'Settings',
+  };
+  return (
+    // Backdrop covers the area under the URL bar; clicking it closes the
+    // overlay. We don't dim too aggressively so the user remembers they're
+    // still on a page.
+    <Box
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      sx={{
+        position: 'absolute', inset: 0, zIndex: 40,
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+        p: { xs: 1, sm: 3 },
+      }}
+    >
+      <Paper
+        elevation={16}
+        sx={{
+          width: 'min(1100px, 100%)',
+          height: 'min(100%, 92vh)',
+          display: 'flex', flexDirection: 'column',
+          borderRadius: 3, overflow: 'hidden',
+          background: 'rgba(8,9,14,0.98)',
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        <Box sx={{
+          display: 'flex', alignItems: 'center', gap: 1,
+          px: 2, py: 1.25, borderBottom: '1px solid rgba(255,255,255,0.08)',
+        }}>
+          <Typography sx={{ flex: 1, fontWeight: 600, color: '#e6e9f5' }}>
+            {titles[name] || name}
+          </Typography>
+          <IconButton size="small" onClick={onClose} sx={{ color: '#9aa3c7' }}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
+        <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+          {name === 'history'    && <HistoryPage onOpen={onOpen} />}
+          {name === 'downloads'  && <DownloadsPage onOpen={onOpen} />}
+          {name === 'passwords'  && <PasswordsPage onOpen={onOpen} />}
+          {name === 'extensions' && <ExtensionsPage onOpen={onOpen} />}
+          {name === 'settings'   && <SettingsPage onOpen={onOpen} />}
+        </Box>
+      </Paper>
     </Box>
   );
 }

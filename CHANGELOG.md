@@ -8,6 +8,61 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.33] - 2026-05-29
+
+### Fixed — Ctrl+R no longer wipes your tabs; settings/extensions/etc. open as popups
+
+Two long-standing UX cliffs reported together. Both came from the same
+root cause: the React shell and the native page were being treated as
+interchangeable targets when they shouldn't be.
+
+- **Refresh ate your tabs.** Pressing `Ctrl+R` (or `F5`) while the
+  React shell happened to have focus — the omnibox, the notes panel,
+  the tabs strip, an open settings page — called `reload()` on
+  `mainWindow.webContents`, which IS the React shell. That blew away
+  the entire React state, including the `tabs` array; your other
+  open tabs vanished from the strip even though their native
+  WebContentsViews were sometimes still alive in the background.
+  Fix: shell-mode `bindShortcuts()` (new `{ isShell: true }` flag)
+  now routes `Ctrl+R` / `Ctrl+Shift+R` / `F5` / `Ctrl+S` / `Ctrl+P`
+  / `Ctrl+U` through `activeTabWebContents()`, so they always act
+  on the focused tab and the React shell is never the target.
+- **Application Menu reload was a back door.** The default
+  `{ role: 'reload' }` / `{ role: 'forceReload' }` entries hit the
+  focused webContents the same way, bypassing the keyboard handler.
+  Both roles are now overridden with explicit `click` handlers that
+  reload via `activeTabWebContents()`.
+- **Defense in depth — tab session persistence.** Even with the
+  shortcut fixes, *anything* that reloads the React shell (auto-update
+  relaunch, dev refresh, a crash) used to silently drop every open
+  tab. The app now snapshots the tab strip (URLs, titles, per-tab
+  history, cursor, active index) into `localStorage` on every
+  change and restores it on next boot, so tabs survive shell
+  restarts the same way Chrome / Brave restore sessions.
+
+### Fixed — Settings, Extensions, History, Downloads, Passwords now open as floating popups
+
+Clicking any of those menu items used to *navigate the active tab*
+to `smartbrowser://settings` (etc), replacing whatever website you
+were reading. Closing it dropped you back on the new-tab page, not
+back on the page you were just on. That's not how Chrome / Brave
+behave and it was the "UI breaks when I open settings" complaint.
+
+- New `InternalOverlay` React modal renders the page on top of the
+  current tab with a backdrop, close button, and `Esc` dismissal.
+- New `App.openInternal(name)` flips `internalOverlay` state, which
+  has an effect that calls `api.tab.setAllVisible(false)` so the
+  native WebContentsView (which always renders above HTML) is
+  temporarily hidden — otherwise the page would render *on top of*
+  the modal and you'd never see it.
+- Closing the overlay re-activates the current tab via
+  `api.tab.activate(activeId)`, so you land back on the exact page
+  you were viewing with all its state intact (no reload).
+- The hamburger menu items in `TopBar` now call `onOpenInternal`
+  instead of `onNavigate('smartbrowser://...')`; the in-tab routes
+  still exist as a fallback for the web/iframe build and for
+  anyone who pastes one of those URLs into the omnibox.
+
 ## [v1.0.32] - 2026-05-29
 
 ### Fixed — Zoom no longer breaks the UI; Ctrl++ works; menu stays open

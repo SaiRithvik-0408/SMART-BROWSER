@@ -36,7 +36,7 @@ export default function TopBar({
   url, onNavigate, onBack, onForward, onReload, onHome,
   vpnOn, onToggleVpnPanel, activeServerLabel,
   notesOpen, onToggleNotesPanel,
-  onNewTab,
+  onNewTab, onOpenInternal,
 }) {
   const [input, setInput] = useState(url || '');
   const [menuAnchor, setMenuAnchor] = useState(null);
@@ -62,6 +62,15 @@ export default function TopBar({
   const closeMenu = () => setMenuAnchor(null);
   const goTo = (url) => { closeMenu(); onNavigate(url); };
   const run = (fn) => () => { closeMenu(); try { fn?.(); } catch {} };
+  // Open one of the internal pages (history / downloads / settings / etc)
+  // as a floating popup over the current tab instead of navigating the
+  // current tab to a smartbrowser:// URL — that used to wipe whatever
+  // website the user was reading.
+  const openInternal = (name) => () => {
+    closeMenu();
+    if (onOpenInternal) onOpenInternal(name);
+    else onNavigate(`smartbrowser://${name}`);   // fallback for web-mode
+  };
   const clearAllData = async () => {
     closeMenu();
     try {
@@ -184,17 +193,19 @@ export default function TopBar({
 
         <Divider />
 
-        {/* --- Library: history / downloads / passwords / bookmarks ---- */}
-        <MenuItem onClick={() => goTo('smartbrowser://history')}>
+        {/* --- Library: history / downloads / passwords / bookmarks ----
+            All of these now open as floating popups (InternalOverlay)
+            instead of replacing the current tab's page. */}
+        <MenuItem onClick={openInternal('history')}>
           <ListItemIcon><HistoryIcon fontSize="small" /></ListItemIcon>
           <ListItemText>History</ListItemText>
         </MenuItem>
-        <MenuItem onClick={() => goTo('smartbrowser://downloads')}>
+        <MenuItem onClick={openInternal('downloads')}>
           <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Downloads</ListItemText>
           <Typography variant="caption" sx={{ color: 'text.secondary', ml: 2 }}>Ctrl+J</Typography>
         </MenuItem>
-        <MenuItem onClick={() => goTo('smartbrowser://passwords')}>
+        <MenuItem onClick={openInternal('passwords')}>
           <ListItemIcon><KeyIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Passwords and autofill</ListItemText>
         </MenuItem>
@@ -202,7 +213,7 @@ export default function TopBar({
           <ListItemIcon><StickyNote2Icon fontSize="small" /></ListItemIcon>
           <ListItemText>Notes</ListItemText>
         </MenuItem>
-        <MenuItem onClick={() => goTo('smartbrowser://extensions')}>
+        <MenuItem onClick={openInternal('extensions')}>
           <ListItemIcon><ExtensionIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Extensions</ListItemText>
         </MenuItem>
@@ -270,7 +281,7 @@ export default function TopBar({
         <Divider />
 
         {/* --- Settings + navigation footers --------------------------- */}
-        <MenuItem onClick={() => goTo('smartbrowser://settings')}>
+        <MenuItem onClick={openInternal('settings')}>
           <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Settings</ListItemText>
         </MenuItem>
