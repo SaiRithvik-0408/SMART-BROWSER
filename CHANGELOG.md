@@ -107,6 +107,21 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ### Fixed
 
+- **VPN didn't actually route tab traffic (and ad blocker / downloads were
+  attaching to the wrong session too)**: the WebContentsView for each tab was
+  configured with both `session: session.defaultSession` AND
+  `partition: 'persist:smartbrowser'`. In Electron, `partition` wins over
+  `session` when both are set, so tabs were quietly running on a different
+  session than the one we were attaching the VPN proxy / ad-blocker request
+  filter / downloads listener / cleaned User-Agent to. Result: clicking
+  "Connect" flipped `setProxy` on a session no tab actually used, so traffic
+  went direct and the visible IP didn't change.
+  Everything is now unified onto a single `BROWSER_PARTITION` session so the
+  proxy / blocker / downloads tracker / UA all apply to real tab traffic.
+- **VPN panel didn't fit narrow windows**: the panel was a fixed 380 px
+  floating dialog, which spilled off-screen when the window was small. It now
+  becomes a full-width bottom sheet at `sm` breakpoint (and below), with a
+  scrollable interior so it works at tablet / phone-like widths.
 - **Home page wouldn't scroll past the visible viewport**: the BrowserView
   wrapper and the per-tab flex containers were missing `min-height: 0`, which
   is the standard flex-and-overflow trap — without it, an `overflow: auto`

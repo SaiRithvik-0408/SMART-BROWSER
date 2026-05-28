@@ -254,11 +254,13 @@ const COSMETIC_JS = `
 })();
 `;
 
-function install() {
+function install(ses) {
   if (installed) return;
   installed = true;
-  const ses = session.defaultSession;
-  ses.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
+  // Accept an explicit session so we can target the same partition the tabs
+  // use. Falls back to defaultSession for any caller that forgets.
+  const target = ses || session.defaultSession;
+  target.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
     if (enabled && shouldBlock(details.url)) {
       blockedCount++;
       return callback({ cancel: true });

@@ -136,7 +136,9 @@ export default function App() {
           minHeight: 0,                  // critical: lets nested overflow:auto actually scroll
           // Reserve space on the right for the VPN panel so the page stays visible
           // and the panel area isn't covered by the native WebContentsView.
-          pr: vpnPanelOpen ? '400px' : 0,
+          // On narrow windows the panel becomes a full-width sheet, so we don't
+          // bother reserving the right pad (the panel sits on top of content).
+          pr: vpnPanelOpen ? { xs: 0, sm: '400px' } : 0,
           transition: 'padding-right 180ms ease',
         }}>
           {tabs.map(t => (

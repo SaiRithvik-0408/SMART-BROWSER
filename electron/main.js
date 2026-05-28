@@ -14,6 +14,15 @@ const passwords = require('./passwords');
 const settings = require('./settings');
 const storeMod = require('./store');
 
+// One canonical session for ALL browsing traffic. Both the tabs (created via
+// WebContentsView) and the things we attach to a session (proxy / adblock /
+// downloads / UA) MUST live on the same session, otherwise — and this was the
+// VPN bug — applying a proxy to defaultSession has no effect on tab traffic
+// that's actually running on `persist:smartbrowser`. We use a single partition
+// everywhere from now on.
+const BROWSER_PARTITION = 'persist:smartbrowser';
+function browserSession() { return session.fromPartition(BROWSER_PARTITION); }
+
 // Rewrite legacy/redirect hosts to their modern equivalents.
 // Reddit's old.reddit.com is the dated UI; route to the current www.reddit.com.
 function normalizeUrl(rawUrl) {
@@ -145,12 +154,18 @@ function stopBackend() {
 
 // ====================  OS-level proxy (real VPN)  ===========================
 async function applyProxy({ enabled, host, port, type } = {}) {
-  const ses = session.defaultSession;
-  if (!enabled || !host) { await ses.setProxy({ mode: 'direct' }); return { applied: false }; }
+  // Apply to the same session the tabs use, otherwise nothing routes through
+  // the proxy (see BROWSER_PARTITION comment).
+  const ses = browserSession();
+  if (!enabled || !host) {
+    await ses.setProxy({ mode: 'direct' });
+    console.log('[proxy] direct (no tunnel)');
+    return { applied: false };
+  }
   const scheme = type === 'SOCKS5' ? 'socks5' : (type === 'HTTP' ? 'http' : 'socks5');
   const rule = `${scheme}://${host}:${port}`;
   await ses.setProxy({ proxyRules: rule, proxyBypassRules: '127.0.0.1;localhost;<-loopback>' });
-  console.log(`[proxy] OS-level routing -> ${rule}`);
+  console.log(`[proxy] tab traffic now routed via ${rule}`);
   return { applied: true, rule };
 }
 
@@ -212,10 +227,12 @@ function createTabView(tabId, initialUrl) {
   if (tabs.has(tabId)) return tabs.get(tabId);
   const view = new WebContentsView({
     webPreferences: {
-      session: session.defaultSession,
+      // partition wins over `session` when both are set, so we ONLY pass
+      // partition — and we use the same one everywhere (proxy/adblock/
+      // downloads/UA all attach to this session via browserSession()).
+      partition: BROWSER_PARTITION,
       contextIsolation: true,
       nodeIntegration: false,
-      partition: 'persist:smartbrowser',
     },
   });
   view.setBackgroundColor('#0a0e22');
@@ -463,20 +480,26 @@ app.whenReady().then(() => {
   // Strip Electron-specific tokens so sites see a plain Chrome user agent.
   // This prevents sites like DuckDuckGo from showing "upgrade your browser" ads
   // and stops servers from fingerprinting the app as an Electron shell.
-  const cleanUA = session.defaultSession.getUserAgent()
+  // CRITICAL: must run on the SAME session the tabs use, not defaultSession.
+  const browsingSession = browserSession();
+  const cleanUA = browsingSession.getUserAgent()
     .replace(/\s+Electron\/\S+/, '')
     .replace(/\s+smart-browser\/\S+/, '');
+  browsingSession.setUserAgent(cleanUA);
+  // Mirror on defaultSession too, just in case some internal Electron call
+  // uses it (no harm if it has no tabs).
   session.defaultSession.setUserAgent(cleanUA);
 
-  // Install the built-in ad/tracker blocker on the shared session, applying
-  // the user's persisted preference.
+  // Install the built-in ad/tracker blocker on the SAME session the tabs use,
+  // applying the user's persisted preference. (Was on defaultSession, which
+  // is why the blocker had no effect on real tab traffic.)
   const userSettings = settings.get();
-  adblock.install();
+  adblock.install(browsingSession);
   adblock.setEnabled(userSettings.adblockEnabled !== false);
   history.setEnabled(userSettings.historyEnabled !== false);
 
-  // Install downloads tracking on the shared session.
-  downloads.install(session.defaultSession, broadcast);
+  // Install downloads tracking on the SAME session the tabs use.
+  downloads.install(browsingSession, broadcast);
 
   startTor();
   startBackend();

@@ -85,7 +85,17 @@ export default function VpnPanel({ open, onClose }) {
   return (
     <Paper
       elevation={12}
-      sx={{ position: 'absolute', top: 64, right: 16, width: 380, p: 2.5, zIndex: 30, borderRadius: 3 }}
+      sx={{
+        position: 'absolute', top: 64, zIndex: 30,
+        // Responsive: floating panel on desktop, full-width sheet on narrow
+        // windows (so the layout still works at mobile-like widths).
+        right: { xs: 8, sm: 16 },
+        left:  { xs: 8, sm: 'auto' },
+        width: { xs: 'auto', sm: 380 },
+        maxHeight: { xs: 'calc(100vh - 80px)', sm: 'unset' },
+        overflowY: 'auto',
+        p: 2.5, borderRadius: 3,
+      }}
     >
       <Stack direction="row" alignItems="center" spacing={1.5} mb={1.5}>
         <ShieldIcon color={trulyMasked ? 'success' : (userPressedConnect ? 'warning' : 'primary')} />
