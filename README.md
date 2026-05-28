@@ -3,6 +3,8 @@
 A **privacy-first standalone desktop browser** with a built-in VPN (free, bundled Tor multi-region), real IP masking, and full website masking. Built on Electron + native Chromium `WebContentsView`s with a React / MUI / Three.js UI shell and a Node.js reverse-proxy backend.
 
 > Status: Working desktop app. YouTube/Wikipedia/Reddit etc. render normally in real Chromium tabs. **Five working VPN exits ship out of the box** — Electron auto-spawns five local Tor instances on launch (Anywhere / US / DE / NL / FR), each on its own SOCKS5 port with `ExitNodes` country-locked, and every tab's network is routed through the chosen one via `session.setProxy()`.
+>
+> Now also ships with a **built-in ad / tracker blocker**, a **Chrome-identical user agent** (no more "upgrade your browser" ads), automatic **old.reddit.com → www.reddit.com** redirects, and a **customizable widget dashboard** on the home page. See [What's new](#whats-new) and [`CHANGELOG.md`](./CHANGELOG.md).
 
 ---
 
@@ -15,11 +17,27 @@ A **privacy-first standalone desktop browser** with a built-in VPN (free, bundle
 5. [Packaging a real `.exe` installer](#5-packaging-a-real-exe-installer)
 6. [How the VPN works (and how to make it actually mask your IP)](#6-how-the-vpn-works-and-how-to-make-it-actually-mask-your-ip)
 7. [How website / URL masking works](#7-how-website--url-masking-works)
-8. [Backend API reference](#8-backend-api-reference)
-9. [Keyboard shortcuts](#9-keyboard-shortcuts)
-10. [Honest limitations](#10-honest-limitations)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Tech stack](#12-tech-stack)
+8. [Ad / tracker blocker, Reddit redirect & clean user agent](#8-ad--tracker-blocker-reddit-redirect--clean-user-agent)
+9. [Customizable widget dashboard](#9-customizable-widget-dashboard)
+10. [Backend API reference](#10-backend-api-reference)
+11. [Keyboard shortcuts](#11-keyboard-shortcuts)
+12. [Honest limitations](#12-honest-limitations)
+13. [Troubleshooting](#13-troubleshooting)
+14. [Tech stack](#14-tech-stack)
+
+See also [What's new](#whats-new) below and the full [`CHANGELOG.md`](./CHANGELOG.md).
+
+---
+
+## What's new
+
+| Feature | Summary | Where |
+| ------- | ------- | ----- |
+| **Ad / tracker blocker** | Network-level blocking of ~120 known ad/analytics/tracker hosts + ad URL paths (incl. YouTube ad endpoints) and cosmetic CSS hiding. Toggleable. | `electron/adblock.js` |
+| **Chrome-identical user agent** | Strips `Electron/…` and `smart-browser/…` tokens so sites see plain Chrome. Stops the DuckDuckGo "upgrade your browser" popup. | `electron/main.js` |
+| **New-Reddit redirect** | `old.reddit.com` / `i.reddit.com` are rewritten to `www.reddit.com` on every navigation. | `electron/main.js` |
+| **Customizable widget dashboard** | Add / remove / reorder home-page widgets: Clock, Calendar, Notes, Quick Links, World Clock. Persists to `localStorage`. | `frontend/src/components/Widgets.jsx` |
+| **Packaging fix** | Windows ZIP now extracts into a `SmartBrowser/` folder instead of dumping files loose. | `.github/workflows/release.yml` |
 
 ---
 
@@ -97,7 +115,8 @@ SMART BROWSER/
 ├── package.json                 ← root: Electron + electron-builder + dev scripts
 ├── README.md                    ← this file
 ├── electron/
-│   ├── main.js                  ← Electron main: window, tabs, VPN proxy, IPC
+│   ├── main.js                  ← Electron main: window, tabs, VPN proxy, IPC, UA cleanup, Reddit redirect
+│   ├── adblock.js               ← built-in ad/tracker blocker (webRequest + cosmetic CSS)
 │   └── preload.js               ← contextBridge → window.smartBrowserAPI
 ├── backend-node/
 │   ├── package.json
@@ -124,7 +143,8 @@ SMART BROWSER/
             ├── TopBar.jsx       ← omnibar + nav buttons + shield toggle
             ├── TabsBar.jsx      ← MUI Tabs with close buttons
             ├── BrowserView.jsx  ← placeholder + ResizeObserver (Electron) / iframe (web fallback)
-            ├── HomePage.jsx     ← gradient hero, search, shortcuts, feature cards
+            ├── HomePage.jsx     ← gradient hero, search, shortcuts, widget dashboard, feature cards
+            ├── Widgets.jsx      ← customizable widget dashboard (clock/calendar/notes/links/world clock)
             ├── VpnPanel.jsx     ← server picker, connect/disconnect, IP check
             └── ThreeBackground.jsx  ← rotating wireframe globe + particles
 ```
@@ -285,7 +305,61 @@ In Electron mode the page is loaded by a native `WebContentsView` directly, so t
 
 ---
 
-## 8) Backend API reference
+## 8) Ad / tracker blocker, Reddit redirect & clean user agent
+
+These three features all live in the Electron main process and apply to **native Chromium tabs** (the production browsing path).
+
+### Ad / tracker blocker (`electron/adblock.js`)
+
+A self-contained blocker — no remote filter-list download, so it works offline and doesn't complicate packaging. Two layers:
+
+1. **Network blocking** via `session.defaultSession.webRequest.onBeforeRequest`:
+   - Cancels requests whose hostname (or any parent domain) is in a built-in list of ~120 ad / analytics / tracker hosts (DoubleClick, Google Ads/Analytics/Tag Manager, Criteo, Taboola, Outbrain, Facebook pixel, TikTok ads, Hotjar, Mixpanel, Segment, etc.).
+   - Cancels requests whose URL path matches ad-serving fragments (`/pagead/`, `/get_video_ads`, `/api/stats/ads`, `/ptracking`, `/gampad/`, …). This catches ads served from first-party hosts — notably **YouTube** video ads.
+2. **Cosmetic hiding** via `webContents.insertCSS` on `dom-ready`: hides leftover ad placeholders (YouTube promoted renderers, AdSense `ins.adsbygoogle`, Google Publisher Tag slots, generic `[aria-label="Advertisement"]`).
+
+The blocker is **on by default**. It can be toggled and inspected at runtime via IPC:
+
+```js
+await window.smartBrowserAPI.adblock.stats();          // { enabled, blocked }
+await window.smartBrowserAPI.adblock.setEnabled(false); // disable
+```
+
+> Why this also fixes "YouTube is slow": in Electron mode tabs load directly (not through `/api/proxy`), so the latency was ad/tracker overhead, not the proxy. Cutting those requests at the network layer makes pages noticeably faster.
+
+### New-Reddit redirect
+
+`normalizeUrl()` in `electron/main.js` rewrites `old.reddit.com` and `i.reddit.com` to `www.reddit.com`. It runs on tab creation, programmatic navigation, and the `will-navigate` event, so links clicked **inside** a page are upgraded too. The home-page Reddit shortcut also points at `https://www.reddit.com`.
+
+### Chrome-identical user agent
+
+On startup the app strips the `Electron/<ver>` and `smart-browser/<ver>` tokens from the session user agent, leaving a stock Chrome UA. This stops sites (e.g. DuckDuckGo) from showing "upgrade / try our browser" promos and prevents fingerprinting the app as an Electron shell.
+
+---
+
+## 9) Customizable widget dashboard
+
+The home page (`frontend/src/components/Widgets.jsx`) renders a **Dashboard** of widgets you can fully customize:
+
+| Widget | What it does | Customization |
+| ------ | ------------ | ------------- |
+| **Clock** | Live local time + date | — |
+| **Calendar** | Current month with today highlighted | — |
+| **Notes** | Free-text scratchpad | Editable; text persists |
+| **Quick Links** | Personal shortcut list; click to open in a tab | Add / remove links |
+| **World Clock** | Time in another timezone | Pick city (NY, London, Berlin, Mumbai, Tokyo, Sydney…) |
+
+Controls per widget:
+
+- **Add** — the "Add widget" button opens a menu of widget types.
+- **Remove** — the ✕ button on each widget card.
+- **Reorder** — the ‹ / › arrows move a widget left/right.
+
+The whole layout (which widgets, their order, and each widget's config) is persisted to `localStorage` under `smartbrowser.widgets.v1`, so it survives restarts. No backend or network calls are involved.
+
+---
+
+## 10) Backend API reference
 
 All endpoints are mounted on `http://localhost:8080`. CORS is open.
 
@@ -335,7 +409,7 @@ Forces an immediate IP check (direct + tunneled) and returns:
 
 ---
 
-## 9) Keyboard shortcuts
+## 11) Keyboard shortcuts
 
 | Shortcut             | Action                                                                                 |
 | -------------------- | -------------------------------------------------------------------------------------- |
@@ -349,7 +423,7 @@ Inside docked DevTools, the standard Chromium **three-dot menu → "Dock side"**
 
 ---
 
-## 10) Honest limitations
+## 12) Honest limitations
 
 A reverse-proxy + Electron browser cannot magically solve every privacy / compatibility problem. The honest list:
 
@@ -362,12 +436,13 @@ A reverse-proxy + Electron browser cannot magically solve every privacy / compat
 | DNS for the SmartBrowser host itself          | When VPN is OFF you have no DNS-level masking                                        | Use Tor or a VPN to hide it |
 | File downloads through `/api/proxy`           | Stream support is basic; large downloads may buffer in memory                        | Acceptable; for big files browse the upstream directly via VPN |
 | TLS client certificates                       | Re-presenting your client cert through the proxy isn't implemented                   | Out of scope          |
+| Ad blocker completeness                       | Uses a built-in static host/path list (no auto-updated EasyList), so it's lighter than uBlock Origin | Blocks the common ad/tracker networks + YouTube ad endpoints; not exhaustive |
 
 This is not an anonymity tool. Don't use it for activities where being identified as a proxy/VPN user would have consequences.
 
 ---
 
-## 11) Troubleshooting
+## 13) Troubleshooting
 
 ### "The window is black / blank"
 
@@ -419,7 +494,7 @@ Delete the `persist:smartbrowser` partition folder:
 
 ---
 
-## 12) Tech stack
+## 14) Tech stack
 
 | Layer        | Technology                                                                                          |
 | ------------ | --------------------------------------------------------------------------------------------------- |
