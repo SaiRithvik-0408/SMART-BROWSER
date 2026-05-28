@@ -64,7 +64,7 @@ const DEFAULTS = [
   { id: 'w-ai',       type: 'ai',       config: { service: 'chatgpt' },    layout: { x: 4, y: 0, w: 4, h: 4 } },
   { id: 'w-stocks',   type: 'stocks',   config: {},                        layout: { x: 8, y: 0, w: 4, h: 4 } },
   { id: 'w-calendar', type: 'calendar', config: {},                        layout: { x: 0, y: 2, w: 4, h: 4 } },
-  { id: 'w-notes',    type: 'notes',    config: { text: '' },              layout: { x: 4, y: 4, w: 4, h: 2 } },
+  { id: 'w-notes',    type: 'notes',    config: {},                        layout: { x: 4, y: 4, w: 4, h: 2 } },
   { id: 'w-news',     type: 'news',     config: { section: 'top' },        layout: { x: 0, y: 6, w: 12, h: 6 } },
 ];
 
@@ -379,20 +379,182 @@ function CalendarWidget() {
   );
 }
 
+// NotesWidget shows ONE note from the shared notes store (the same data the
+// Notes panel manages). The widget config stores `noteId`; if none is set, we
+// fall back to the most recently updated note. Editing here writes through
+// the IPC API, so changes show up in the panel and vice versa.
+//
+// Image strategy:
+//   • Paste an image from the clipboard → it's added to the note's images
+//     array as a data: URI and rendered as a thumbnail strip below the text.
+//   • The "Open in Notes" button pops the full panel jumped to this note for
+//     image management, larger editing surface, etc.
 function NotesWidget({ config, onConfig }) {
+  const [notes, setNotes] = useState([]);
+  const [text, setText] = useState('');
+  const [savedTick, setSavedTick] = useState(0);
+  const saveTimerRef = React.useRef(null);
+  const inflightIdRef = React.useRef(null);
+
+  // Pick which note the widget edits. Falls back to most recent.
+  const noteId = config.noteId || notes[0]?.id || null;
+  const note   = notes.find((n) => n.id === noteId) || null;
+
+  const reload = async () => {
+    if (!sbAPI?.notes) return null;
+    const list = await sbAPI.notes.list();
+    setNotes(list);
+    return list;
+  };
+
+  useEffect(() => { reload(); }, []);
+
+  // Whenever the chosen note changes (different id, or someone else edited
+  // it via the panel), pull its text back into the local input.
+  useEffect(() => {
+    if (note && inflightIdRef.current !== note.id) {
+      setText(note.content || '');
+    }
+  }, [note?.id, note?.updatedAt]);
+
+  // Debounced write-through to the shared store.
+  const queueSave = (next) => {
+    if (!noteId) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    inflightIdRef.current = noteId;
+    saveTimerRef.current = setTimeout(async () => {
+      await sbAPI.notes.update(noteId, { content: next });
+      inflightIdRef.current = null;
+      setSavedTick((t) => t + 1);
+      reload();
+    }, 600);
+  };
+
+  const createAndUse = async () => {
+    const created = await sbAPI.notes.create({ title: 'Quick note', content: '' });
+    await reload();
+    onConfig({ noteId: created.id });
+  };
+
+  const handlePaste = async (e) => {
+    if (!sbAPI?.notes || !noteId) return;
+    const items = Array.from(e.clipboardData?.items || []);
+    const imgs  = items.filter((it) => it.type && it.type.startsWith('image/'));
+    if (!imgs.length) return;
+    e.preventDefault();
+    const dataUrls = await Promise.all(imgs.map((it) => new Promise((resolve) => {
+      const f = it.getAsFile();
+      if (!f) return resolve(null);
+      const fr = new FileReader();
+      fr.onload = () => resolve({ id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, src: String(fr.result || ''), alt: f.name || 'image' });
+      fr.readAsDataURL(f);
+    })));
+    const newImgs = dataUrls.filter(Boolean);
+    if (!newImgs.length) return;
+    const next = [...(note?.images || []), ...newImgs];
+    await sbAPI.notes.update(noteId, { images: next });
+    reload();
+  };
+
+  const openInPanel = () => {
+    window.dispatchEvent(new CustomEvent('sb:open-notes', { detail: { noteId } }));
+  };
+
+  if (!sbAPI?.notes) {
+    // Browser dev mode (no Electron) — fall back to local-only buffer so the
+    // widget still works in the dev server.
+    return (
+      <InputBase
+        multiline
+        value={config.text || ''}
+        onChange={(e) => onConfig({ text: e.target.value })}
+        placeholder="JOT SOMETHING DOWN…"
+        sx={{
+          width: '100%', height: '100%', alignItems: 'flex-start',
+          color: '#e6e9f5', fontFamily: MONO, fontSize: 12, lineHeight: 1.5,
+          '& textarea': { height: '100% !important' },
+          '& textarea::placeholder': { letterSpacing: 1, opacity: 0.5 },
+        }}
+      />
+    );
+  }
+
   return (
-    <InputBase
-      multiline
-      value={config.text || ''}
-      onChange={(e) => onConfig({ text: e.target.value })}
-      placeholder="JOT SOMETHING DOWN…"
-      sx={{
-        width: '100%', height: '100%', alignItems: 'flex-start',
-        color: '#e6e9f5', fontFamily: MONO, fontSize: 12, lineHeight: 1.5,
-        '& textarea': { height: '100% !important' },
-        '& textarea::placeholder': { letterSpacing: 1, opacity: 0.5 },
-      }}
-    />
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0.5, minHeight: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 1, color: '#9aa3c7', flex: 1,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {note ? (note.title || 'UNTITLED').toUpperCase() : 'NO NOTE'}
+        </Typography>
+        {notes.length > 0 && (
+          <Select
+            value={noteId || ''}
+            variant="standard" disableUnderline
+            onChange={(e) => onConfig({ noteId: e.target.value })}
+            sx={{ fontSize: 10, color: ACCENT, fontFamily: MONO, '& .MuiSelect-icon': { color: ACCENT } }}
+          >
+            {notes.map((n) => (
+              <MenuItem key={n.id} value={n.id} sx={{ fontSize: 12 }}>
+                {n.title || 'Untitled'}
+              </MenuItem>
+            ))}
+          </Select>
+        )}
+        <Tooltip title="Open in Notes panel">
+          <IconButton size="small" onClick={openInPanel} sx={{ p: 0.25, color: '#9aa3c7' }}>
+            <ChevronRightIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+      {!note ? (
+        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Button size="small" variant="outlined" onClick={createAndUse}
+            sx={{ fontFamily: MONO, letterSpacing: 1, fontSize: 10, color: ACCENT,
+              borderColor: ACCENT, '&:hover': { borderColor: ACCENT, background: 'rgba(214,69,61,0.08)' } }}
+          >
+            + NEW NOTE
+          </Button>
+        </Box>
+      ) : (
+        <>
+          <InputBase
+            multiline
+            value={text}
+            onChange={(e) => { setText(e.target.value); queueSave(e.target.value); }}
+            onPaste={handlePaste}
+            placeholder="JOT SOMETHING DOWN — PASTE IMAGES TOO…"
+            sx={{
+              flex: 1, alignItems: 'flex-start',
+              color: '#e6e9f5', fontFamily: MONO, fontSize: 12, lineHeight: 1.5,
+              '& textarea': { height: '100% !important' },
+              '& textarea::placeholder': { letterSpacing: 1, opacity: 0.5 },
+            }}
+          />
+          {(note.images || []).length > 0 && (
+            <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pt: 0.5,
+              borderTop: `1px dashed ${LINE}` }}>
+              {note.images.slice(0, 6).map((img) => (
+                <Box key={img.id} component="img" src={img.src} alt={img.alt}
+                  onClick={openInPanel}
+                  sx={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 0.5,
+                    cursor: 'pointer', flexShrink: 0, opacity: 0.85,
+                    '&:hover': { opacity: 1 } }}
+                />
+              ))}
+              {note.images.length > 6 && (
+                <Box onClick={openInPanel}
+                  sx={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'rgba(255,255,255,0.04)', color: '#9aa3c7',
+                    fontFamily: MONO, fontSize: 11, borderRadius: 0.5, cursor: 'pointer' }}
+                >
+                  +{note.images.length - 6}
+                </Box>
+              )}
+            </Box>
+          )}
+        </>
+      )}
+    </Box>
   );
 }
 

@@ -12,6 +12,7 @@ const history = require('./history');
 const downloads = require('./downloads');
 const passwords = require('./passwords');
 const settings = require('./settings');
+const notes = require('./notes');
 const storeMod = require('./store');
 
 // One canonical session for ALL browsing traffic. Both the tabs (created via
@@ -185,26 +186,91 @@ function bindShortcuts(contents) {
       contents.reload();
       event.preventDefault();
     }
+    if (ctrlOrCmd && (input.key === 'S' || input.key === 's')) {
+      try { contents.downloadURL(contents.getURL()); } catch {}
+      event.preventDefault();
+    }
+    if (ctrlOrCmd && (input.key === 'P' || input.key === 'p')) {
+      try { contents.print({ silent: false, printBackground: true }); } catch {}
+      event.preventDefault();
+    }
+    if (ctrlOrCmd && (input.key === 'U' || input.key === 'u')) {
+      try { broadcast('tab:open-new', { url: `view-source:${contents.getURL()}` }); } catch {}
+      event.preventDefault();
+    }
   });
 
   contents.on('context-menu', (_e, params) => {
     const nav = contents.navigationHistory ?? contents;
-    const menu = Menu.buildFromTemplate([
-      { label: 'Back',    enabled: nav.canGoBack?.()    ?? false, click: () => nav.goBack?.() },
-      { label: 'Forward', enabled: nav.canGoForward?.() ?? false, click: () => nav.goForward?.() },
-      { label: 'Reload',  click: () => contents.reload() },
+    const url = contents.getURL();
+    const isWebPage = /^https?:/.test(url);
+
+    // Link-specific entries appear only when right-click hit a real <a href>.
+    const link = params.linkURL || '';
+    const linkItems = link ? [
+      { label: 'Open link in new tab', click: () => broadcast('tab:open-new', { url: link }) },
+      { label: 'Copy link address',    click: () => { try { require('electron').clipboard.writeText(link); } catch {} } },
       { type: 'separator' },
-      { label: 'Copy',  role: 'copy',  enabled: params.editFlags.canCopy },
-      { label: 'Paste', role: 'paste', enabled: params.editFlags.canPaste },
+    ] : [];
+
+    // Image-specific entries.
+    const img = params.srcURL && params.mediaType === 'image' ? params.srcURL : '';
+    const imageItems = img ? [
+      { label: 'Open image in new tab', click: () => broadcast('tab:open-new', { url: img }) },
+      { label: 'Copy image address',    click: () => { try { require('electron').clipboard.writeText(img); } catch {} } },
+      { label: 'Save image as...',      click: () => contents.downloadURL(img) },
+      { type: 'separator' },
+    ] : [];
+
+    // Selection-specific entries (Search the web).
+    const sel = (params.selectionText || '').trim();
+    const selectionItems = sel ? [
+      { label: `Search the web for "${sel.length > 30 ? sel.slice(0, 30) + '...' : sel}"`,
+        click: () => {
+          const q = settings.searchUrlFor(sel);
+          broadcast('tab:open-new', { url: q });
+        }
+      },
+      { type: 'separator' },
+    ] : [];
+
+    const template = [
+      { label: 'Back',    accelerator: 'Alt+Left',  enabled: nav.canGoBack?.()    ?? false, click: () => nav.goBack?.() },
+      { label: 'Forward', accelerator: 'Alt+Right', enabled: nav.canGoForward?.() ?? false, click: () => nav.goForward?.() },
+      { label: 'Reload',  accelerator: 'Ctrl+R',    click: () => contents.reload() },
+      { type: 'separator' },
+      ...linkItems,
+      ...imageItems,
+      ...selectionItems,
+      { label: 'Copy',       role: 'copy',      enabled: params.editFlags.canCopy },
+      { label: 'Paste',      role: 'paste',     enabled: params.editFlags.canPaste },
       { label: 'Select All', role: 'selectAll', enabled: params.editFlags.canSelectAll },
       { type: 'separator' },
-      { label: 'Inspect Element', click: () => {
+      // Chrome-equivalent page actions.
+      { label: 'Save page as...', accelerator: 'Ctrl+S', enabled: isWebPage,
+        click: () => contents.downloadURL(url) },
+      { label: 'Print...', accelerator: 'Ctrl+P', enabled: isWebPage,
+        click: () => contents.print({ silent: false, printBackground: true }) },
+      { label: 'Create QR Code for this page', enabled: isWebPage,
+        click: () => {
+          // QR Server is a tiny free image API — opens the QR PNG in a new tab.
+          const qr = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(url)}`;
+          broadcast('tab:open-new', { url: qr });
+        } },
+      { label: 'Translate to English', enabled: isWebPage,
+        click: () => broadcast('tab:open-new', { url: `https://translate.google.com/translate?sl=auto&tl=en&u=${encodeURIComponent(url)}` }) },
+      { type: 'separator' },
+      { label: 'View page source', accelerator: 'Ctrl+U', enabled: isWebPage,
+        click: () => broadcast('tab:open-new', { url: `view-source:${url}` }) },
+      { label: 'Inspect',
+        accelerator: 'Ctrl+Shift+I',
+        click: () => {
           if (!contents.isDevToolsOpened()) contents.openDevTools({ mode: 'right' });
           contents.inspectElement(params.x, params.y);
         }
       },
-    ]);
-    menu.popup();
+    ];
+    Menu.buildFromTemplate(template).popup();
   });
 }
 
@@ -474,6 +540,13 @@ ipcMain.handle('settings:set',  (_e, patch) => {
   return next;
 });
 ipcMain.handle('settings:search-url', (_e, q) => settings.searchUrlFor(String(q || '')));
+
+// ----- Notes -------------------------------------------------------------
+ipcMain.handle('notes:list',   ()              => notes.list());
+ipcMain.handle('notes:get',    (_e, id)        => notes.get(id));
+ipcMain.handle('notes:create', (_e, body)      => notes.create(body || {}));
+ipcMain.handle('notes:update', (_e, { id, patch }) => notes.update(id, patch || {}));
+ipcMain.handle('notes:remove', (_e, id)        => notes.remove(id));
 
 // ====================  Lifecycle  ===========================================
 app.whenReady().then(() => {

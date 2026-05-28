@@ -95,4 +95,12 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
     set:       (patch)  => ipcRenderer.invoke('settings:set', patch),
     searchUrl: (q)      => ipcRenderer.invoke('settings:search-url', q),
   },
+
+  notes: {
+    list:   ()              => ipcRenderer.invoke('notes:list'),
+    get:    (id)            => ipcRenderer.invoke('notes:get', id),
+    create: (body)          => ipcRenderer.invoke('notes:create', body || {}),
+    update: (id, patch)     => ipcRenderer.invoke('notes:update', { id, patch }),
+    remove: (id)            => ipcRenderer.invoke('notes:remove', id),
+  },
 });

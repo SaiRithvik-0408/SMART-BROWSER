@@ -8,6 +8,7 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import HomeIcon from '@mui/icons-material/Home';
 import ShieldIcon from '@mui/icons-material/Shield';
+import StickyNote2Icon from '@mui/icons-material/StickyNote2';
 import LockIcon from '@mui/icons-material/Lock';
 import MenuIcon from '@mui/icons-material/Menu';
 import HistoryIcon from '@mui/icons-material/History';
@@ -22,6 +23,7 @@ const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 export default function TopBar({
   url, onNavigate, onBack, onForward, onReload, onHome,
   vpnOn, onToggleVpnPanel, activeServerLabel,
+  notesOpen, onToggleNotesPanel,
 }) {
   const [input, setInput] = useState(url || '');
   const [menuAnchor, setMenuAnchor] = useState(null);
@@ -97,6 +99,12 @@ export default function TopBar({
       <Tooltip title={vpnOn ? `VPN: ${activeServerLabel || 'connected'}` : 'VPN off — click to configure'}>
         <IconButton onClick={onToggleVpnPanel} sx={{ color: vpnOn ? '#34d399' : '#9aa3c7' }}>
           <ShieldIcon />
+        </IconButton>
+      </Tooltip>
+
+      <Tooltip title={notesOpen ? 'Close notes' : 'Open notes'}>
+        <IconButton onClick={onToggleNotesPanel} sx={{ color: notesOpen ? '#fbbf24' : '#9aa3c7' }}>
+          <StickyNote2Icon />
         </IconButton>
       </Tooltip>
 

@@ -8,6 +8,66 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.25] - 2026-05-29
+
+### Added — Notes everywhere
+
+- **Notes panel in the navigation bar**: a sticky-note icon now sits next to
+  the VPN shield. Click it to slide out a full Notes panel with a left-hand
+  note list (search, dates, previews) and a right-hand editor. Notes are
+  persisted on disk under `userData/sb-store/notes.json` via a new
+  `electron/notes.js` module + IPC bridge.
+- **Multi-note support**: create, rename, search, and delete notes; the panel
+  auto-saves 500 ms after every edit.
+- **Inline images in notes**: paste images straight from the clipboard,
+  drag-and-drop image files onto the editor, or use the "Add image" button.
+  Images are stored as data URIs inside each note (cap of ~2 MB per note to
+  keep the JSON store responsive). A live thumbnail gallery shows every image
+  with a one-click remove.
+- **Notes widget ↔ panel link**: the home-page Notes widget now reads and
+  writes the *same* notes as the panel — change a note in either place and
+  the other updates. The widget picks the most recent note by default and
+  has a dropdown to switch to any note. Pasting an image into the widget
+  adds it to the underlying note, and clicking any thumbnail opens that note
+  in the full panel.
+
+### Added — Tab right-click menu
+
+- **Per-tab context menu** matching Chrome / Brave: New tab to the right,
+  Reload, Duplicate, **Pin / Unpin** (pinned tabs become a 40 px favicon-only
+  chip and are immune to middle-click close), Close, Close other tabs, Close
+  tabs to the right (with live count), Close duplicate tabs, **Reopen closed
+  tab** (Ctrl+Shift+T).
+- **Recently-closed stack** in `App.jsx` remembers up to 20 closed tabs so
+  Reopen actually has something to restore.
+- **Keyboard shortcuts**: `Ctrl+T` opens a new tab, `Ctrl+W` closes the
+  current tab, `Ctrl+Shift+T` reopens the last closed tab.
+
+### Added — Page right-click menu enhancements
+
+The webview's native context menu (already had Back / Forward / Reload /
+Copy / Paste / Inspect) now also includes:
+
+- **Save page as…** (Ctrl+S) – downloads the current page through Electron's
+  native downloads manager (tracked by the downloads page).
+- **Print…** (Ctrl+P) – opens the OS print dialog.
+- **Create QR code for this page** – opens a QR PNG of the current URL in a
+  new tab (handy for hand-off to phones).
+- **Translate to English** – opens Google Translate with the current page.
+- **View page source** (Ctrl+U) – opens `view-source:` in a new tab.
+- **Search the web for "…"** when text is selected — uses your configured
+  default search engine.
+- **Open / copy / save link** when the click hit an `<a href>`.
+- **Open / copy / save image** when the click hit an `<img>`.
+
+### Files
+
+- New: `electron/notes.js`, `frontend/src/components/NotesPanel.jsx`.
+- Changed: `electron/main.js`, `electron/preload.js`,
+  `frontend/src/App.jsx`, `frontend/src/components/TopBar.jsx`,
+  `frontend/src/components/TabsBar.jsx`,
+  `frontend/src/components/Widgets.jsx`.
+
 ### Added
 
 - **Home page redesign (Nothing-UI inspired)**: monospace type, uppercase

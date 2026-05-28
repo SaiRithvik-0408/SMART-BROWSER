@@ -34,6 +34,9 @@ See also [What's new](#whats-new) below and the full [`CHANGELOG.md`](./CHANGELO
 
 | Feature | Summary | Where |
 | ------- | ------- | ----- |
+| **Notes panel + image notes** (v1.0.25) | Sticky-note icon in the nav opens a multi-note editor with search, auto-save, and inline images (paste, drag-and-drop, or pick a file). The home-page Notes widget reads/writes the same store, so edits in either place stay in sync. | `electron/notes.js`, `frontend/src/components/NotesPanel.jsx` |
+| **Tab right-click menu** (v1.0.25) | Per-tab context menu: New tab to the right, Reload, Duplicate, Pin/Unpin, Close / Close others / Close to the right / Close duplicates, Reopen closed tab (Ctrl+Shift+T). | `frontend/src/components/TabsBar.jsx` |
+| **Beefier page right-click menu** (v1.0.25) | Save page as, Print, Create QR code for this page, Translate, View page source, Search the web for "…", Open/Copy/Save link & image. | `electron/main.js` |
 | **Ad / tracker blocker** | Network-level blocking of ~120 known ad/analytics/tracker hosts + ad URL paths (incl. YouTube ad endpoints) and cosmetic CSS hiding. Toggleable. | `electron/adblock.js` |
 | **Chrome-identical user agent** | Strips `Electron/…` and `smart-browser/…` tokens so sites see plain Chrome. Stops the DuckDuckGo "upgrade your browser" popup. | `electron/main.js` |
 | **New-Reddit redirect** | `old.reddit.com` / `i.reddit.com` are rewritten to `www.reddit.com` on every navigation. | `electron/main.js` |
