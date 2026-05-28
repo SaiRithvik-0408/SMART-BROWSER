@@ -166,6 +166,16 @@ export default function NotesPanel({ open, onClose, initialNoteId }) {
     })();
   }, [open, initialNoteId]);
 
+  // Re-fetch the notes list while the panel is open so notes created /
+  // edited via the dashboard widget (or any other surface) show up here
+  // without forcing the user to close + re-open the panel. 4-second poll
+  // is rate-limited enough to be invisible cost-wise.
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => { reload().catch(() => {}); }, 4000);
+    return () => clearInterval(id);
+  }, [open]);
+
   // Whenever the active note changes, load its HTML into the editor ONCE.
   // We don't keep React in lockstep with editor innerHTML because that would
   // wipe the cursor on every keystroke.

@@ -796,6 +796,34 @@ function insertInlineImage(editor, src, alt, savedRange) {
   if (sel) { sel.removeAllRanges(); sel.addRange(range); }
 }
 
+// Compact "5m ago" / "Mon 14:32" style timestamp for the all-notes menu.
+// Anything <60s reads "just now", <60m reads "Xm", <24h reads "Xh", older
+// shows weekday + time so the user can spot it at a glance.
+function fmtNoteTime(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  if (diff < 60_000)    return 'just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
+  const d = new Date(ts);
+  return d.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+// Plain-text preview of a note for menu rows. Strips HTML and images so the
+// row stays one line tall regardless of what's inside.
+function previewOfNote(n) {
+  if (!n) return '';
+  const raw = n.content || '';
+  const stripped = raw
+    .replace(/<img[^>]*>/gi, ' [image] ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stripped || '(empty)';
+}
+
 // NotesWidget mirrors the shared notes store the panel uses. It IS a mini
 // editor: contentEditable + inline image insertion at the cursor, exactly
 // like the panel. Clicking any inline image opens the full Notes panel
@@ -803,6 +831,7 @@ function insertInlineImage(editor, src, alt, savedRange) {
 function NotesWidget({ config, onConfig }) {
   const [notes, setNotes] = useState([]);
   const [dirty, setDirty] = useState(false);
+  const [listMenuAnchor, setListMenuAnchor] = useState(null);
   const editorRef = React.useRef(null);
   const saveTimerRef = React.useRef(null);
   const loadedNoteIdRef = React.useRef(null);
@@ -820,6 +849,13 @@ function NotesWidget({ config, onConfig }) {
   };
 
   useEffect(() => { reload(); }, []);
+
+  // Re-fetch periodically so notes added from the full panel show up here
+  // without needing a page reload.
+  useEffect(() => {
+    const id = setInterval(() => { reload().catch(() => {}); }, 5000);
+    return () => clearInterval(id);
+  }, []);
 
   // Load HTML into the editor on note-change, OR when the panel edited the
   // same note out-of-band (we re-sync only when our local draft is clean).
@@ -921,31 +957,103 @@ function NotesWidget({ config, onConfig }) {
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0.5, minHeight: 0 }}>
+      {/* Header row: current note title, prev/next steppers through the
+          notes history, a count badge that doubles as a "show all" menu,
+          a + button to start a new note, and a → to expand into the
+          full Notes panel. */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 1, color: '#9aa3c7', flex: 1,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {note ? (note.title || 'UNTITLED').toUpperCase() : 'NO NOTE'}
         </Typography>
-        {notes.length > 0 && (
-          <Select
-            value={noteId || ''}
-            variant="standard" disableUnderline
-            onChange={(e) => { loadedNoteIdRef.current = null; onConfig({ noteId: e.target.value }); }}
-            sx={{ fontSize: 10, color: ACCENT, fontFamily: MONO, '& .MuiSelect-icon': { color: ACCENT } }}
-          >
-            {notes.map((n) => (
-              <MenuItem key={n.id} value={n.id} sx={{ fontSize: 12 }}>
-                {n.title || 'Untitled'}
-              </MenuItem>
-            ))}
-          </Select>
+        {notes.length > 1 && (
+          <>
+            <Tooltip title="Previous note">
+              <IconButton size="small" sx={{ p: 0.25, color: '#9aa3c7' }}
+                onClick={() => {
+                  const idx = notes.findIndex((n) => n.id === noteId);
+                  const prev = notes[idx > 0 ? idx - 1 : notes.length - 1];
+                  if (prev) { loadedNoteIdRef.current = null; onConfig({ noteId: prev.id }); }
+                }}
+              >
+                <ChevronLeftIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={`${notes.length} notes — click for full list`}>
+              <Box
+                onClick={(e) => setListMenuAnchor(e.currentTarget)}
+                sx={{
+                  fontFamily: MONO, fontSize: 9, letterSpacing: 1, color: ACCENT,
+                  px: 0.6, py: 0.15, borderRadius: 0.75, cursor: 'pointer',
+                  border: `1px solid ${ACCENT}55`,
+                  '&:hover': { background: `${ACCENT}1a` },
+                }}
+              >
+                {notes.length}
+              </Box>
+            </Tooltip>
+            <Tooltip title="Next note">
+              <IconButton size="small" sx={{ p: 0.25, color: '#9aa3c7' }}
+                onClick={() => {
+                  const idx = notes.findIndex((n) => n.id === noteId);
+                  const next = notes[idx >= 0 && idx < notes.length - 1 ? idx + 1 : 0];
+                  if (next) { loadedNoteIdRef.current = null; onConfig({ noteId: next.id }); }
+                }}
+              >
+                <ChevronRightIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </>
         )}
+        <Tooltip title="New note">
+          <IconButton size="small" onClick={createAndUse} sx={{ p: 0.25, color: '#9aa3c7' }}>
+            <AddIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Open in Notes panel">
           <IconButton size="small" onClick={openInPanel} sx={{ p: 0.25, color: '#9aa3c7' }}>
             <ChevronRightIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       </Box>
+      {/* "All notes" dropdown — shows every note with a relative timestamp
+          + a small content preview so the user can spot the one they want. */}
+      <Menu
+        anchorEl={listMenuAnchor} open={!!listMenuAnchor} onClose={() => setListMenuAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{ sx: { maxHeight: 360, maxWidth: 320, mt: 0.5, background: 'rgba(8,9,14,0.96)',
+          border: `1px solid ${LINE}` } }}
+      >
+        {notes.map((n) => (
+          <MenuItem
+            key={n.id}
+            selected={n.id === noteId}
+            onClick={() => { loadedNoteIdRef.current = null; onConfig({ noteId: n.id }); setListMenuAnchor(null); }}
+            sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+              gap: 0.25, py: 0.75, borderBottom: `1px solid ${LINE}` }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, width: '100%' }}>
+              <Typography sx={{ fontFamily: MONO, fontSize: 12, color: '#e6e9f5', flex: 1,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {n.title || 'Untitled'}
+              </Typography>
+              <Typography sx={{ fontFamily: MONO, fontSize: 9, color: '#5b6385', letterSpacing: 1 }}>
+                {fmtNoteTime(n.updatedAt)}
+              </Typography>
+            </Box>
+            <Typography sx={{ fontFamily: MONO, fontSize: 10, color: '#9aa3c7', maxWidth: 280,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {previewOfNote(n)}
+            </Typography>
+          </MenuItem>
+        ))}
+        {notes.length === 0 && (
+          <MenuItem disabled sx={{ fontFamily: MONO, fontSize: 11, color: '#5b6385' }}>
+            No notes yet
+          </MenuItem>
+        )}
+      </Menu>
       {!note ? (
         <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Button size="small" variant="outlined" onClick={createAndUse}

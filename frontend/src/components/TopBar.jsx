@@ -58,6 +58,7 @@ export default function TopBar({
     onNavigate(v);
   };
 
+  const [zoomLevel, setZoomLevel] = useState(0);
   const closeMenu = () => setMenuAnchor(null);
   const goTo = (url) => { closeMenu(); onNavigate(url); };
   const run = (fn) => () => { closeMenu(); try { fn?.(); } catch {} };
@@ -67,10 +68,29 @@ export default function TopBar({
       if (api?.browser?.clearData) await api.browser.clearData({ history: true, downloads: true, cache: true, cookies: false });
     } catch {}
   };
-  const zoom = (dir) => async () => {
-    closeMenu();
-    try { if (api?.browser?.zoom) await api.browser.zoom(dir); } catch {}
+  // Zoom does NOT close the menu — the user usually clicks zoom multiple
+  // times to dial in a comfortable size, and a menu-closing-per-click UX
+  // forces them to reopen the menu between every step. We do swallow the
+  // mouseDown event so MUI's "click outside" handler doesn't kill it.
+  const zoom = (dir) => async (e) => {
+    e?.stopPropagation?.();
+    try {
+      const next = api?.browser?.zoom ? await api.browser.zoom(dir) : null;
+      if (typeof next === 'number') setZoomLevel(next);
+    } catch {}
   };
+  // Refresh the displayed zoom level when the menu opens so the user sees
+  // the current zoom of the active tab, not a stale 0.
+  React.useEffect(() => {
+    if (!menuAnchor || !api?.browser?.zoom) return;
+    (async () => {
+      try { const n = await api.browser.zoom('query'); if (typeof n === 'number') setZoomLevel(n); } catch {}
+    })();
+  }, [menuAnchor]);
+  // Render zoom as a percentage: setZoomLevel uses log-ish scale, but for a
+  // quick visual we just show 100% * 1.2^level which matches Chrome's curve
+  // closely enough for the menu badge.
+  const zoomPct = Math.round(Math.pow(1.2, zoomLevel) * 100);
 
   return (
     <Paper
@@ -116,7 +136,11 @@ export default function TopBar({
       </Box>
 
       <Tooltip title={vpnOn ? `VPN: ${activeServerLabel || 'connected'}` : 'VPN off — click to configure'}>
-        <IconButton onClick={onToggleVpnPanel} sx={{ color: vpnOn ? '#34d399' : '#9aa3c7' }}>
+        <IconButton
+          data-sb-vpn-toggle
+          onClick={onToggleVpnPanel}
+          sx={{ color: vpnOn ? '#34d399' : '#9aa3c7' }}
+        >
           <ShieldIcon />
         </IconButton>
       </Tooltip>
@@ -189,13 +213,40 @@ export default function TopBar({
 
         <Divider />
 
-        {/* --- Page actions: zoom / find / save / print ---------------- */}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          px: 2, py: 0.75, gap: 1 }}>
+        {/* --- Page actions: zoom / find / save / print ----------------
+            Zoom buttons intentionally DON'T close the menu so the user can
+            click +/− multiple times in a row to dial in a comfortable size. */}
+        <Box
+          onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            px: 2, py: 0.75, gap: 1 }}
+        >
           <Typography variant="body2" sx={{ flex: 1 }}>Zoom</Typography>
-          <IconButton size="small" onClick={zoom('out')}><ZoomOutIcon fontSize="small" /></IconButton>
-          <IconButton size="small" onClick={zoom('reset')}><ZoomOutMapIcon fontSize="small" /></IconButton>
-          <IconButton size="small" onClick={zoom('in')}><ZoomInIcon fontSize="small" /></IconButton>
+          <Tooltip title="Zoom out (Ctrl+−)">
+            <IconButton size="small" onClick={zoom('out')}><ZoomOutIcon fontSize="small" /></IconButton>
+          </Tooltip>
+          <Box
+            onClick={zoom('reset')}
+            sx={{
+              minWidth: 42, px: 0.75, py: 0.25, textAlign: 'center', cursor: 'pointer',
+              borderRadius: 1, fontSize: 12, color: 'text.secondary',
+              '&:hover': { background: 'rgba(255,255,255,0.06)' },
+            }}
+          >
+            {zoomPct}%
+          </Box>
+          <Tooltip title="Zoom in (Ctrl+=)">
+            <IconButton size="small" onClick={zoom('in')}><ZoomInIcon fontSize="small" /></IconButton>
+          </Tooltip>
+          <Tooltip title="Fullscreen">
+            <IconButton size="small" onClick={run(() => {
+              if (document.fullscreenElement) document.exitFullscreen();
+              else document.documentElement.requestFullscreen?.();
+            })}>
+              <ZoomOutMapIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Box>
         <MenuItem onClick={run(() => {
           const q = window.prompt('Find in page');

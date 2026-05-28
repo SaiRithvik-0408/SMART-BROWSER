@@ -199,6 +199,18 @@ function bindShortcuts(contents) {
       try { broadcast('tab:open-new', { url: `view-source:${contents.getURL()}` }); } catch {}
       event.preventDefault();
     }
+    // Zoom shortcuts — always route to the active tab via zoomActiveTab so
+    // the React shell never zooms (which would break layouts). Covers all
+    // common physical keys: =/+ / numpad +, -/_ / numpad -, 0.
+    if (ctrlOrCmd && !input.alt) {
+      const k = input.key;
+      const isPlus  = k === '+' || k === '=' || (input.shift && k === '=');
+      const isMinus = k === '-' || k === '_';
+      const isZero  = k === '0';
+      if (isPlus)  { zoomActiveTab('in');    event.preventDefault(); }
+      if (isMinus) { zoomActiveTab('out');   event.preventDefault(); }
+      if (isZero)  { zoomActiveTab('reset'); event.preventDefault(); }
+    }
   });
 
   contents.on('context-menu', (_e, params) => {
@@ -467,7 +479,17 @@ function createWindow() {
           target.isDevToolsOpened() ? target.closeDevTools() : target.openDevTools({ mode: 'right' });
         }
       },
-      { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+      { type: 'separator' },
+      // Override the built-in zoom roles. The defaults call setZoomLevel on
+      // whatever webContents has keyboard focus, which on the home page is
+      // the React shell — and zooming the shell breaks our chrome. Route
+      // everything through zoomActiveTab() so only the actual page zooms.
+      { label: 'Reset Zoom', accelerator: 'CmdOrCtrl+0', click: () => zoomActiveTab('reset') },
+      { label: 'Zoom In',    accelerator: 'CmdOrCtrl+=', click: () => zoomActiveTab('in')  },
+      { label: 'Zoom In',    accelerator: 'CmdOrCtrl+Plus', visible: false, click: () => zoomActiveTab('in') },
+      { label: 'Zoom In',    accelerator: 'CmdOrCtrl+numadd', visible: false, click: () => zoomActiveTab('in') },
+      { label: 'Zoom Out',   accelerator: 'CmdOrCtrl+-', click: () => zoomActiveTab('out') },
+      { label: 'Zoom Out',   accelerator: 'CmdOrCtrl+numsub', visible: false, click: () => zoomActiveTab('out') },
       { type: 'separator' }, { role: 'togglefullscreen' },
     ] },
   ]));
@@ -548,10 +570,12 @@ ipcMain.handle('tab:open-devtools', (_e, tabId) => {
 });
 
 // ----- Browser-wide actions (driven by the hamburger menu) ----------------
-// All of these operate on the currently active tab's WebContentsView. If
-// nothing is focused we fall back to the host window's webContents (the
-// React shell) so things like find-in-page can still work on the new tab
-// page.
+// activeWebContents() resolves the currently focused tab. For most actions
+// we want a window-level fallback (Find on the new-tab page is fine, Print
+// nothing is fine). But zoom MUST NEVER fall back to mainWindow because
+// `setZoomLevel` on mainWindow.webContents scales the entire React shell
+// and breaks the layout (omnibar, tabs strip, widget grid all shrink).
+// activeTabWebContents() is the strict, no-fallback variant used by zoom.
 function activeWebContents() {
   if (activeTabId) {
     const t = tabs.get(activeTabId);
@@ -559,19 +583,33 @@ function activeWebContents() {
   }
   return mainWindow?.webContents;
 }
+function activeTabWebContents() {
+  if (!activeTabId) return null;
+  const t = tabs.get(activeTabId);
+  return t ? t.view.webContents : null;
+}
 
-ipcMain.handle('browser:zoom', (_e, direction) => {
-  const wc = activeWebContents();
+// Applies a zoom delta/value to the active tab and returns the new level.
+// Returns null when there's no tab to zoom (e.g. user is on the home page).
+// All zoom entrypoints — IPC, Application Menu roles, keyboard shortcuts —
+// funnel through this so the React shell is never zoomed.
+function zoomActiveTab(direction) {
+  const wc = activeTabWebContents();
   if (!wc) return null;
   const cur = wc.getZoomLevel?.() ?? 0;
+  // 'query' is a read-only ping used by the renderer to populate the menu
+  // badge — don't write anything, just echo the current zoom back.
+  if (direction === 'query') return cur;
   let next = cur;
-  if (direction === 'in')      next = Math.min(cur + 0.5, 5);
-  else if (direction === 'out') next = Math.max(cur - 0.5, -3);
+  if (direction === 'in')         next = Math.min(cur + 0.5, 5);
+  else if (direction === 'out')   next = Math.max(cur - 0.5, -3);
   else if (direction === 'reset') next = 0;
   else if (typeof direction === 'number') next = direction;
   try { wc.setZoomLevel?.(next); } catch {}
   return next;
-});
+}
+
+ipcMain.handle('browser:zoom', (_e, direction) => zoomActiveTab(direction));
 
 ipcMain.handle('browser:find', (_e, query) => {
   const wc = activeWebContents();

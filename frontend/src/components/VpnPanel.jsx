@@ -15,6 +15,53 @@ export default function VpnPanel({ open, onClose }) {
   const [selected, setSelected] = useState('');
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
+  const paperRef = React.useRef(null);
+
+  // Auto-close on clicks outside the panel, Esc, OR when the user clicks
+  // into the underlying native WebContentsView (which fires
+  // chrome:page-focus from the main process). Mirrors NotesPanel.
+  React.useEffect(() => {
+    if (!open) return;
+    // Brief grace window so the click that OPENED the panel doesn't
+    // immediately close it. Same trick the notes panel uses.
+    const armAt = Date.now() + 200;
+
+    const onDown = (e) => {
+      if (Date.now() < armAt) return;
+      if (!paperRef.current) return;
+      // Excluded: the shield toggle in the omnibar (data-sb-vpn-toggle) so
+      // clicking the toggle is a clean toggle, not toggle-then-immediately-
+      // -close-via-outside-click.
+      if (e.target.closest?.('[data-sb-vpn-toggle]')) return;
+      if (paperRef.current.contains(e.target)) return;
+      // Clicks inside any popover/menu/dialog spawned BY the panel (Select
+      // dropdowns, etc.) shouldn't count as "outside".
+      if (e.target.closest?.('.MuiPopover-root, .MuiMenu-root, .MuiDialog-root, .MuiModal-root')) return;
+      onClose?.();
+    };
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('keydown', onKey);
+
+    // chrome:page-focus fires from main when the user clicks into a tab's
+    // WebContentsView (which always renders ABOVE the React panel and
+    // therefore swallows the mousedown event the panel never sees).
+    let unsubFocus = () => {};
+    try {
+      if (window.smartBrowserAPI?.tab?.onPageFocus) {
+        unsubFocus = window.smartBrowserAPI.tab.onPageFocus(() => {
+          if (Date.now() < armAt) return;
+          onClose?.();
+        });
+      }
+    } catch {}
+
+    return () => {
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('keydown', onKey);
+      try { unsubFocus(); } catch {}
+    };
+  }, [open, onClose]);
 
   const refresh = async () => {
     try {
@@ -84,6 +131,7 @@ export default function VpnPanel({ open, onClose }) {
 
   return (
     <Paper
+      ref={paperRef}
       elevation={12}
       sx={{
         position: 'absolute', top: 64, zIndex: 30,

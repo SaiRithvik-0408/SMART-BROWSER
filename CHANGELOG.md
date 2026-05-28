@@ -8,6 +8,85 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.32] - 2026-05-29
+
+### Fixed — Zoom no longer breaks the UI; Ctrl++ works; menu stays open
+
+The zoom flow had three intersecting bugs that all looked like "zoom is
+broken":
+
+- **Ctrl+− zoomed and shattered the chrome.** The IPC handler fell back
+  to `mainWindow.webContents` when no tab was active, so on the home
+  page (and any time the React shell had focus) zoom scaled the entire
+  React UI — omnibar, tabs strip, widget grid, everything. New
+  `activeTabWebContents()` strictly returns the focused tab or `null`;
+  `zoomActiveTab()` no-ops cleanly when there's no tab to zoom.
+- **Ctrl++ / Ctrl+= didn't work.** The default Application Menu
+  accelerator was technically registered, but its built-in `zoomIn`
+  role targeted the focused webContents (broken per above) and some
+  keyboard layouts swallowed the menu shortcut. Replaced the three
+  built-in roles (`zoomIn` / `zoomOut` / `resetZoom`) with explicit
+  click handlers that funnel through `zoomActiveTab()`, AND wired
+  `Ctrl+=` / `Ctrl++` / `Ctrl+-` / `Ctrl+_` / `Ctrl+0` / numpad
+  variants in `bindShortcuts` so the shortcut works regardless of
+  which surface has focus.
+- **The hamburger menu closed after a single zoom click.** Made zoom
+  one of the only menu actions that DOESN'T close the menu: stop
+  mouseDown propagation, removed the `closeMenu()` call in the zoom
+  handler, and added a `100%` percentage badge between − and + so the
+  user can see exactly what level they're at and click reset.
+
+### Fixed — VPN panel now closes on click-outside / Esc / page focus
+
+The VPN panel ignored clicks outside its body — only the in-panel Close
+button dismissed it. Mirrored the same dismissal logic the Notes panel
+got in v1.0.27:
+
+- `mousedown` listener on document, with a 200 ms arm-delay so the
+  click that opened the panel doesn't immediately close it.
+- `Escape` key dismisses.
+- `chrome:page-focus` IPC event dismisses (fires whenever the user
+  clicks into a native WebContentsView, which would otherwise swallow
+  the mousedown the panel never sees).
+- The omnibar VPN shield button gets `data-sb-vpn-toggle` so clicking
+  it cleanly toggles the panel instead of toggle-then-immediately-
+  close-on-the-outside-click that follows.
+
+### Improved — Notes widget surfaces the full history
+
+The widget used to show the current note title with a barely-visible
+`Scratch ▾` dropdown. Replaced with a real navigator:
+
+- Title on the left.
+- `‹` / `›` chevrons step backwards / forwards through all notes
+  (wraps at the ends).
+- A red count badge (`3`) in the middle — click for a popover with
+  every note, each row showing title, relative timestamp ("just now",
+  "5m", "2h", "Mon 14:32"), and a single-line plain-text preview.
+- `+` button creates a new note inline (no panel needed).
+- `›` to the right opens the full Notes panel jumped to the current
+  note.
+
+Both the widget and the panel now poll the notes store every 4–5 s, so
+notes added on one surface appear on the other without manual reload.
+
+### Files changed
+
+- `electron/main.js` — `activeTabWebContents()` + `zoomActiveTab()`;
+  Application Menu zoom roles replaced; `bindShortcuts` now catches
+  zoom keystrokes from any focused webContents.
+- `frontend/src/components/TopBar.jsx` — zoom buttons keep the menu
+  open and show a live percentage badge; VPN shield tagged with
+  `data-sb-vpn-toggle`.
+- `frontend/src/components/VpnPanel.jsx` — `paperRef` + click-outside
+  / Esc / page-focus auto-dismiss; same arm-delay as Notes.
+- `frontend/src/components/NotesPanel.jsx` — 4 s background reload
+  while the panel is open so notes from other surfaces appear live.
+- `frontend/src/components/Widgets.jsx` — `NotesWidget` header
+  redesigned (prev/next chevrons + count badge + popover list of all
+  notes with timestamps and previews + inline + button); `fmtNoteTime`
+  + `previewOfNote` helpers; widget polls notes every 5 s.
+
 ## [v1.0.31] - 2026-05-29
 
 ### Changed — Home page is now a true grid editor (20 cols, 1×1 min, 8-way resize)
