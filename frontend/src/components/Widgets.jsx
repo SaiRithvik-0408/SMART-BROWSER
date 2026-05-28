@@ -28,6 +28,7 @@ import GridLayout from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import NewsFeed from './NewsFeed';
+import { LAYOUT_CHANGED } from '../lib/layouts';
 
 const sbAPI = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
@@ -359,6 +360,21 @@ export default function Widgets({ onOpen }) {
   useEffect(() => {
     try { localStorage.setItem(LAYOUT_MODE_KEY, layoutMode); } catch {}
   }, [layoutMode]);
+
+  // Saved-layout switcher (Settings → Layouts) fires this custom event
+  // after writing the new state into the same localStorage keys we use.
+  // Reload our state in-place so the user doesn't need to refresh the
+  // page to see the applied layout.
+  useEffect(() => {
+    const onChange = (e) => {
+      const next = e.detail?.widgets;
+      const nextCols = Number(e.detail?.gridCols);
+      if (Array.isArray(next)) setWidgets(next);
+      if (Number.isFinite(nextCols)) setGridColsState(nextCols);
+    };
+    window.addEventListener(LAYOUT_CHANGED, onChange);
+    return () => window.removeEventListener(LAYOUT_CHANGED, onChange);
+  }, []);
 
   // When the user picks a new grid column count, the available NUMBER of
   // cells changes — but widgets keep their absolute (x, w) values, so each

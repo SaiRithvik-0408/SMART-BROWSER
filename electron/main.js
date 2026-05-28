@@ -624,13 +624,22 @@ function activeTabWebContents() {
   return t ? t.view.webContents : null;
 }
 
-// Applies a zoom delta/value to the active tab and returns the new level.
-// Returns null when there's no tab to zoom (e.g. user is on the home page).
+// Applies a zoom delta/value to the active tab and returns the new state.
+// When there's no tab to zoom (user is on the home / new-tab page) we
+// return { noTab: true } so the renderer can apply a CSS scale to its
+// React home content instead — the user reported that zoom did nothing
+// on the home page because we used to silently no-op here.
 // All zoom entrypoints — IPC, Application Menu roles, keyboard shortcuts —
 // funnel through this so the React shell is never zoomed.
 function zoomActiveTab(direction) {
   const wc = activeTabWebContents();
-  if (!wc) return null;
+  if (!wc) {
+    // No native tab content. Forward the request to the renderer so it can
+    // apply a CSS-only zoom to the home page (or any future React-only
+    // surface). The renderer maintains its own homeZoom state.
+    try { mainWindow?.webContents?.send('home:zoom', direction); } catch {}
+    return { noTab: true, direction };
+  }
   const cur = wc.getZoomLevel?.() ?? 0;
   // 'query' is a read-only ping used by the renderer to populate the menu
   // badge — don't write anything, just echo the current zoom back.

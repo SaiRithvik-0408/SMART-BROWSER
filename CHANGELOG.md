@@ -8,6 +8,68 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.36] - 2026-05-29
+
+### Fixed — Zoom finally works on the home / new-tab page
+
+The zoom buttons in the hamburger menu and the `Ctrl +` / `Ctrl -` /
+`Ctrl 0` shortcuts had been silently no-op'ing whenever the user was on
+the home tab. The root cause: zoom routed through `zoomActiveTab()` in
+the main process, which bailed early with `return null` when there was
+no native `WebContentsView` to zoom — and the home page is a React
+surface with no native view at all.
+
+- `electron/main.js`: `zoomActiveTab` now forwards the request to the
+  renderer via a new `home:zoom` IPC event when there's no tab. It
+  returns `{ noTab: true, direction }` so callers know the request was
+  redirected rather than dropped.
+- `electron/preload.js`: exposes `smartBrowserAPI.browser.onHomeZoom`
+  for the renderer to subscribe.
+- `frontend/src/App.jsx`: new `homeZoom` state (persisted to
+  `localStorage`), an `adjustHomeZoom(direction)` helper that walks a
+  fixed Chrome-style step ladder (50 → 200%), and a subscription to
+  `onHomeZoom` so shortcuts fired from main also update the state.
+- `frontend/src/components/BrowserView.jsx`: applies `zoom: homeZoom`
+  (closest CSS equivalent to Chrome's page-zoom — re-layouts as well
+  as scales) to the home-page container when `homeZoom !== 1`.
+- `frontend/src/components/TopBar.jsx`: the menu's zoom buttons now
+  detect `isHomeActive` and route through `onHomeZoom` directly, and
+  the percentage badge reflects either `homeZoom * 100` (home) or
+  `1.2 ^ zoomLevel * 100` (real tab) so the value is always accurate.
+
+### Added — Save up to 3 dashboard layouts (like phone themes)
+
+Users asked for a way to keep multiple widget arrangements and switch
+between them. New `Dashboard Layouts` section in **Settings** with 3
+slots; each slot can:
+
+- **Save current** — snapshot the live `widgets` array + `gridCols`
+  into the slot, named whatever the user picks in the prompt.
+- **Apply** — write the snapshot back into the live keys and fire a
+  `sb:widgets:layout-changed` custom event so any mounted `Widgets`
+  instance reloads in-place without a page reload.
+- **Rename** — inline edit, max 40 chars.
+- **Overwrite** — re-snapshot the live state into an existing slot.
+- **Delete** — clears the slot (keeps the array length stable so slot
+  positions are persistent in the UI).
+
+Storage layout is intentionally simple and lives entirely in
+`localStorage`:
+
+- `smartbrowser.widgets.layouts.v1` — `[{ name, widgets, gridCols, savedAt } | null, ..., len=3]`
+- Re-uses the existing `smartbrowser.widgets.v6` and
+  `smartbrowser.widgets.gridCols.v1` keys as the "current" state.
+
+Files:
+
+- `frontend/src/lib/layouts.js` — new module with `loadLayouts`,
+  `saveCurrentToSlot`, `applySlot`, `clearSlot`, `renameSlot`, plus
+  `LAYOUT_CHANGED` event name and `MAX_LAYOUT_SLOTS` constant.
+- `frontend/src/components/SettingsPage.jsx` — new `LayoutsManager`
+  component renders the 3 slots with the action buttons described above.
+- `frontend/src/components/Widgets.jsx` — listens for `LAYOUT_CHANGED`
+  and rewrites `widgets` + `gridCols` state without remounting.
+
 ## [v1.0.35] - 2026-05-29
 
 ### Changed — Grid column count now adds/removes cells (stops rescaling widgets)

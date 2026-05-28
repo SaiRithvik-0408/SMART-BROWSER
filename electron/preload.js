@@ -122,6 +122,15 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
   // know which WebContentsView is focused.
   browser: {
     zoom:       (direction)  => ipcRenderer.invoke('browser:zoom', direction),  // 'in' | 'out' | 'reset' | number
+    // Main fires `home:zoom` when a zoom shortcut/menu action fires but
+    // there's no native tab to zoom (e.g. user is on the home / new-tab
+    // page). The renderer responds by applying a CSS scale to its React
+    // home content.
+    onHomeZoom: (cb) => {
+      const h = (_e, dir) => cb?.(dir);
+      ipcRenderer.on('home:zoom', h);
+      return () => ipcRenderer.removeListener('home:zoom', h);
+    },
     find:       (query)      => ipcRenderer.invoke('browser:find', query || ''),
     print:      ()           => ipcRenderer.invoke('browser:print'),
     savePage:   ()           => ipcRenderer.invoke('browser:save-page'),

@@ -26,7 +26,7 @@ function internalKey(url) {
   return INTERNAL_PAGES[url] || null;
 }
 
-export default function BrowserView({ tab, isActive, onTitleChange, onNavigateInTab }) {
+export default function BrowserView({ tab, isActive, onTitleChange, onNavigateInTab, homeZoom = 1 }) {
   const placeholderRef = useRef(null);
   const iframeRef      = useRef(null);
   const [loading, setLoading] = useState(false);
@@ -116,8 +116,16 @@ export default function BrowserView({ tab, isActive, onTitleChange, onNavigateIn
       internal === 'passwords'  ? <PasswordsPage  onOpen={open} /> :
       internal === 'extensions' ? <ExtensionsPage onOpen={open} /> :
                                   <HomePage       onOpen={open} />;
+    // CSS zoom for React-rendered pages. We use `zoom` (closest to Chrome's
+    // page-zoom behavior — relayouts as well as scales) when supported, and
+    // fall back to `transform: scale` + a compensating width so scrollbars
+    // still hit the edges. Default 1.0 = no transform overhead at all.
+    const wantsZoom = isHome && Math.abs(homeZoom - 1) > 0.001;
+    const zoomStyle = wantsZoom
+      ? { zoom: homeZoom }
+      : {};
     return (
-      <Box sx={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'auto' }}>
+      <Box sx={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'auto', ...zoomStyle }}>
         {InternalView}
       </Box>
     );

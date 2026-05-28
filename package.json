@@ -1,6 +1,6 @@
 {
   "name": "smart-browser",
-  "version": "1.0.35",
+  "version": "1.0.36",
   "description": "SmartBrowser — privacy-first desktop browser with built-in VPN, IP masking, and URL/website masking.",
   "main": "electron/main.js",
   "scripts": {

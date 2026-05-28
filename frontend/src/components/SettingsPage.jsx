@@ -8,6 +8,15 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import DashboardCustomizeIcon from '@mui/icons-material/DashboardCustomize';
+import SaveIcon from '@mui/icons-material/Save';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import EditIcon from '@mui/icons-material/Edit';
+import {
+  loadLayouts, saveCurrentToSlot, applySlot, clearSlot, renameSlot,
+  MAX_LAYOUT_SLOTS,
+} from '../lib/layouts';
 
 const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
@@ -24,6 +33,137 @@ const AI_OPTIONS = [
   { value: 'gemini',  label: 'Gemini' },
   { value: 'claude',  label: 'Claude' },
 ];
+
+// =========================================================================
+// LayoutsManager — 3 saved layout slots ("themes") for the home dashboard.
+// Each slot snapshots the current widgets + grid column count and can be
+// re-applied at any time. Empty slots show a "Save current dashboard"
+// button; populated slots show Apply / Rename / Delete plus a relative
+// timestamp.
+// =========================================================================
+function fmtAge(ts) {
+  if (!ts) return '';
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60)     return 'just now';
+  if (s < 3600)   return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400)  return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function LayoutsManager() {
+  const [layouts, setLayouts] = useState(() => loadLayouts());
+  const [renameIdx, setRenameIdx] = useState(-1);
+  const [renameVal, setRenameVal] = useState('');
+  const [toast, setToast] = useState('');
+
+  const refresh = () => setLayouts(loadLayouts());
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 1500); };
+
+  const onSave = (idx) => {
+    const existing = layouts[idx];
+    const defaultName = existing?.name || `Layout ${idx + 1}`;
+    const name = window.prompt('Name this layout:', defaultName);
+    if (name === null) return;        // user cancelled
+    saveCurrentToSlot(idx, name.trim() || defaultName);
+    refresh();
+    flash('Layout saved');
+  };
+  const onApply = (idx) => {
+    if (applySlot(idx)) flash('Layout applied — open the new-tab page to see it');
+    else flash("Couldn't apply this layout");
+  };
+  const onDelete = (idx) => {
+    if (!window.confirm('Delete this saved layout? This cannot be undone.')) return;
+    clearSlot(idx);
+    refresh();
+  };
+  const startRename = (idx) => {
+    setRenameIdx(idx);
+    setRenameVal(layouts[idx]?.name || `Layout ${idx + 1}`);
+  };
+  const commitRename = () => {
+    if (renameIdx >= 0) { renameSlot(renameIdx, renameVal.trim()); refresh(); }
+    setRenameIdx(-1); setRenameVal('');
+  };
+
+  return (
+    <Stack spacing={1.5}>
+      <Typography sx={{ fontSize: 12, color: '#9aa3c7' }}>
+        Save up to {MAX_LAYOUT_SLOTS} dashboard layouts (positions, sizes, and
+        chosen widgets) and switch between them like phone home-screen themes.
+        The current dashboard is what gets saved when you click <strong>Save</strong>.
+      </Typography>
+      {Array.from({ length: MAX_LAYOUT_SLOTS }).map((_, idx) => {
+        const slot = layouts[idx];
+        const empty = !slot;
+        return (
+          <Box key={idx} sx={{
+            display: 'flex', alignItems: 'center', gap: 1.5, p: 1.25,
+            borderRadius: 1.5, border: `1px solid ${empty ? 'rgba(255,255,255,0.08)' : 'rgba(167,139,250,0.30)'}`,
+            background: empty ? 'rgba(255,255,255,0.02)' : 'rgba(167,139,250,0.05)',
+          }}>
+            <Box sx={{
+              width: 32, height: 32, borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: empty ? 'rgba(255,255,255,0.06)' : 'rgba(167,139,250,0.18)',
+              color: empty ? '#5b6385' : '#a78bfa', fontWeight: 700, fontSize: 14,
+              flexShrink: 0,
+            }}>{idx + 1}</Box>
+
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              {renameIdx === idx ? (
+                <TextField
+                  size="small" autoFocus fullWidth value={renameVal}
+                  onChange={(e) => setRenameVal(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitRename();
+                    else if (e.key === 'Escape') { setRenameIdx(-1); setRenameVal(''); }
+                  }}
+                  onBlur={commitRename}
+                  inputProps={{ maxLength: 40 }}
+                />
+              ) : (
+                <>
+                  <Typography sx={{ fontWeight: 600, color: empty ? '#7a82a8' : '#e6e9f5', fontSize: 14 }}>
+                    {empty ? `Empty slot ${idx + 1}` : slot.name}
+                  </Typography>
+                  {!empty && (
+                    <Typography sx={{ fontSize: 11, color: '#7a82a8' }}>
+                      {slot.widgets?.length || 0} widgets · {slot.gridCols} cols · saved {fmtAge(slot.savedAt)}
+                    </Typography>
+                  )}
+                </>
+              )}
+            </Box>
+
+            <Stack direction="row" spacing={0.5}>
+              {!empty && (
+                <>
+                  <Button size="small" startIcon={<PlayArrowIcon />} onClick={() => onApply(idx)}
+                    sx={{ color: '#a78bfa', minWidth: 0 }}>Apply</Button>
+                  <IconButton size="small" onClick={() => startRename(idx)} title="Rename">
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton size="small" onClick={() => onDelete(idx)} title="Delete">
+                    <DeleteOutlineIcon fontSize="small" />
+                  </IconButton>
+                </>
+              )}
+              <Button size="small" startIcon={<SaveIcon />} onClick={() => onSave(idx)}
+                variant={empty ? 'outlined' : 'text'}
+                sx={{ minWidth: 0, color: empty ? '#7aa2ff' : '#9aa3c7' }}>
+                {empty ? 'Save current' : 'Overwrite'}
+              </Button>
+            </Stack>
+          </Box>
+        );
+      })}
+      {toast && (
+        <Alert severity="success" sx={{ fontSize: 12, py: 0 }}>{toast}</Alert>
+      )}
+    </Stack>
+  );
+}
 
 function AiKeyField({ label, placeholder, value, visible, onToggle, onChange, helpLink }) {
   return (
@@ -245,6 +385,10 @@ export default function SettingsPage() {
             inline answers in the widget.
           </Alert>
         </Stack>
+      </Section>
+
+      <Section title="Dashboard Layouts">
+        <LayoutsManager />
       </Section>
 
       <Section title="About">

@@ -100,6 +100,35 @@ export default function App() {
   const [internalOverlay, setInternalOverlay] = useState(null);
   // Most-recently-closed tabs, so "Reopen closed tab" can resurrect them.
   const [closedStack, setClosedStack] = useState([]);
+  // CSS-only zoom level for the home / new-tab page. Real tabs use the
+  // native WebContents zoom (set via main process). Home is a React surface
+  // with no WebContentsView, so we apply a transform: scale to its content
+  // when the user fires zoom shortcuts while on home — without this the
+  // zoom button silently no-ops, which is what the user reported.
+  const HOME_ZOOM_STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+  const [homeZoom, setHomeZoom] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem('sb.homeZoom.v1');
+      const n = Number(raw);
+      return Number.isFinite(n) && HOME_ZOOM_STEPS.includes(n) ? n : 1.0;
+    } catch { return 1.0; }
+  });
+  const adjustHomeZoom = (dir) => {
+    setHomeZoom((cur) => {
+      let nextIdx = HOME_ZOOM_STEPS.indexOf(cur);
+      if (nextIdx < 0) nextIdx = HOME_ZOOM_STEPS.indexOf(1.0);
+      if (dir === 'reset') nextIdx = HOME_ZOOM_STEPS.indexOf(1.0);
+      else if (dir === 'in')  nextIdx = Math.min(HOME_ZOOM_STEPS.length - 1, nextIdx + 1);
+      else if (dir === 'out') nextIdx = Math.max(0, nextIdx - 1);
+      else if (typeof dir === 'number') {
+        const closest = HOME_ZOOM_STEPS.reduce((p, n) => Math.abs(n - dir) < Math.abs(p - dir) ? n : p, HOME_ZOOM_STEPS[0]);
+        nextIdx = HOME_ZOOM_STEPS.indexOf(closest);
+      }
+      const next = HOME_ZOOM_STEPS[nextIdx];
+      try { window.localStorage.setItem('sb.homeZoom.v1', String(next)); } catch {}
+      return next;
+    });
+  };
 
   const active = useMemo(() => tabs.find(t => t.id === activeId), [tabs, activeId]);
 
@@ -117,6 +146,14 @@ export default function App() {
       setTabs(prev => [...prev, t]);
       setActiveId(t.id);
     });
+  }, []);
+
+  // Listen for zoom events that main forwards when there's no tab to zoom
+  // (user is on the home page). Main sends the direction ('in'/'out'/'reset')
+  // and we apply it to homeZoom — see HOME_ZOOM_STEPS above.
+  useEffect(() => {
+    if (!inElectron || !api?.browser?.onHomeZoom) return;
+    return api.browser.onHomeZoom((dir) => adjustHomeZoom(dir));
   }, []);
 
   // Cross-app event channel from the new-tab page (HomePage / widgets) — the
@@ -421,6 +458,9 @@ export default function App() {
           onToggleNotesPanel={() => { setNotesInitialId(null); setNotesPanelOpen(v => !v); }}
           onNewTab={addTab}
           onOpenInternal={openInternal}
+          isHomeActive={!active || active.url === 'home'}
+          homeZoom={homeZoom}
+          onHomeZoom={adjustHomeZoom}
         />
         <UpdateBanner />
         <Box sx={{
@@ -440,6 +480,7 @@ export default function App() {
               <BrowserView
                 tab={t}
                 isActive={t.id === activeId}
+                homeZoom={homeZoom}
                 onTitleChange={(title) => setTabs(prev => prev.map(x => x.id === t.id ? { ...x, title } : x))}
                 onNavigateInTab={(url, opts) => {
                   if (t.id !== activeId) return;

@@ -37,6 +37,11 @@ export default function TopBar({
   vpnOn, onToggleVpnPanel, activeServerLabel,
   notesOpen, onToggleNotesPanel,
   onNewTab, onOpenInternal,
+  // Zoom only works on native tab content; when the user is on the home
+  // page (no WebContentsView) we apply zoom as a CSS scale via React state
+  // owned by App.jsx. These three props let TopBar route the menu's zoom
+  // buttons through the right path and show an accurate percentage badge.
+  isHomeActive = false, homeZoom = 1, onHomeZoom,
 }) {
   const [input, setInput] = useState(url || '');
   const [menuAnchor, setMenuAnchor] = useState(null);
@@ -81,25 +86,43 @@ export default function TopBar({
   // times to dial in a comfortable size, and a menu-closing-per-click UX
   // forces them to reopen the menu between every step. We do swallow the
   // mouseDown event so MUI's "click outside" handler doesn't kill it.
+  //
+  // Two paths:
+  //   - On the home page (isHomeActive): route the request to React's
+  //     homeZoom state via the onHomeZoom callback. The home page renders
+  //     with a CSS scale based on this value (see BrowserView).
+  //   - On any real tab: invoke main's `browser:zoom`, which sets the
+  //     native WebContentsView's zoom level.
+  // Without this split, zoom was completely broken on the home tab because
+  // there was no native view to zoom — the click silently no-op'd.
   const zoom = (dir) => async (e) => {
     e?.stopPropagation?.();
     try {
-      const next = api?.browser?.zoom ? await api.browser.zoom(dir) : null;
-      if (typeof next === 'number') setZoomLevel(next);
+      if (isHomeActive) {
+        onHomeZoom?.(dir);
+        return;
+      }
+      const res = api?.browser?.zoom ? await api.browser.zoom(dir) : null;
+      if (typeof res === 'number') setZoomLevel(res);
+      // res may be `{ noTab: true }` if main couldn't find an active tab
+      // (e.g. tab just navigated to home) — main fires `home:zoom` for us
+      // in that case, App.jsx catches it and updates homeZoom, which flows
+      // back into this component via the homeZoom prop.
     } catch {}
   };
   // Refresh the displayed zoom level when the menu opens so the user sees
   // the current zoom of the active tab, not a stale 0.
   React.useEffect(() => {
-    if (!menuAnchor || !api?.browser?.zoom) return;
+    if (!menuAnchor || !api?.browser?.zoom || isHomeActive) return;
     (async () => {
-      try { const n = await api.browser.zoom('query'); if (typeof n === 'number') setZoomLevel(n); } catch {}
+      try { const r = await api.browser.zoom('query'); if (typeof r === 'number') setZoomLevel(r); } catch {}
     })();
-  }, [menuAnchor]);
-  // Render zoom as a percentage: setZoomLevel uses log-ish scale, but for a
-  // quick visual we just show 100% * 1.2^level which matches Chrome's curve
-  // closely enough for the menu badge.
-  const zoomPct = Math.round(Math.pow(1.2, zoomLevel) * 100);
+  }, [menuAnchor, isHomeActive]);
+  // Percentage badge for the menu: real-tab zoom uses Chrome's log curve
+  // (100% × 1.2^level); home zoom is a direct scale factor.
+  const zoomPct = isHomeActive
+    ? Math.round(homeZoom * 100)
+    : Math.round(Math.pow(1.2, zoomLevel) * 100);
 
   return (
     <Paper
