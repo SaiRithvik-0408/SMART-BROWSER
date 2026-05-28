@@ -16,6 +16,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import {
   loadLayouts, saveCurrentToSlot, applySlot, clearSlot, renameSlot,
   MAX_LAYOUT_SLOTS,
+  getCurrentGridCols, setCurrentGridCols,
+  GRID_COL_MIN, GRID_COL_MAX, GRID_COL_PRESETS,
 } from '../lib/layouts';
 
 const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
@@ -161,6 +163,67 @@ function LayoutsManager() {
       {toast && (
         <Alert severity="success" sx={{ fontSize: 12, py: 0 }}>{toast}</Alert>
       )}
+    </Stack>
+  );
+}
+
+// =========================================================================
+// GridColsPicker — used to live in the dashboard header but the user
+// wanted the new-tab page kept clean and the option moved into Settings.
+// Presets + custom input, applied via setCurrentGridCols which writes to
+// localStorage AND fires LAYOUT_CHANGED so a mounted dashboard updates
+// in-place.
+// =========================================================================
+function GridColsPicker() {
+  const [cols, setCols] = useState(() => getCurrentGridCols());
+  const [custom, setCustom] = useState(String(cols));
+
+  const apply = (n) => {
+    const next = setCurrentGridCols(n);
+    setCols(next);
+    setCustom(String(next));
+  };
+
+  return (
+    <Stack spacing={1.5}>
+      <Typography sx={{ fontSize: 12, color: '#9aa3c7' }}>
+        Number of vertical cells the dashboard is divided into. A 1×1 widget
+        is always twice as wide as it is tall, so picking 4 cols gives you
+        4 wide cells across the screen, picking 30 cols gives you 30 narrow
+        cells. Heights stay proportional automatically.
+      </Typography>
+
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+        {GRID_COL_PRESETS.map((n) => (
+          <Button
+            key={n} size="small" variant={cols === n ? 'contained' : 'outlined'}
+            onClick={() => apply(n)}
+            sx={{
+              minWidth: 56, fontFamily: 'ui-monospace, monospace', fontSize: 12,
+              ...(cols === n ? { background: '#a78bfa', color: '#0a0e22',
+                '&:hover': { background: '#a78bfa' } } : {}),
+            }}
+          >
+            {n} cols
+          </Button>
+        ))}
+      </Box>
+
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Typography sx={{ fontSize: 12, color: '#9aa3c7', minWidth: 64 }}>Custom:</Typography>
+        <TextField
+          size="small" type="number"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') apply(custom); }}
+          inputProps={{ min: GRID_COL_MIN, max: GRID_COL_MAX, style: { width: 80 } }}
+          helperText={`${GRID_COL_MIN}–${GRID_COL_MAX}`}
+          FormHelperTextProps={{ sx: { fontSize: 10, mx: 0 } }}
+        />
+        <Button size="small" variant="outlined" onClick={() => apply(custom)}>Apply</Button>
+        <Box sx={{ flex: 1 }} />
+        <Chip size="small" label={`Currently: ${cols} cols`} sx={{ height: 22, fontSize: 11 }} />
+      </Stack>
     </Stack>
   );
 }
@@ -385,6 +448,10 @@ export default function SettingsPage() {
             inline answers in the widget.
           </Alert>
         </Stack>
+      </Section>
+
+      <Section title="Dashboard">
+        <GridColsPicker />
       </Section>
 
       <Section title="Dashboard Layouts">

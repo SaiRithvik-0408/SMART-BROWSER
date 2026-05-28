@@ -8,6 +8,54 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.38] - 2026-05-29
+
+### Added — Right-click → Duplicate on every widget
+
+Widgets now have a right-click context menu (`onContextMenu` handler on
+`WidgetFrame`) anchored at the pointer position:
+
+- **Duplicate** — clones the widget directly below the original with
+  fresh `id`, deep-cloned `config`, and the same `w`/`h`. Works on
+  every widget type including brand and header.
+- **Remove** — hidden when the catalog marks the widget as
+  non-removable (e.g. brand) so it can't be lost by accident.
+- Skips opening on `<input>`, `<textarea>`, and `contenteditable` so
+  copy/paste in Notes / Stocks ticker inputs still uses the native
+  browser menu.
+
+### Changed — Row height now holds a true 2:1 width:height ratio at any grid size
+
+The old `ROW_HEIGHT_MAX = 80` clamp broke the 2:1 ratio at low column
+counts — a 1×1 cell at 4 cols was 240 × 80 (3:1) instead of 240 × 120
+(2:1). Raised the cap to 240 so the ratio is now exact across the
+entire grid range (4–50 cols). One grid cell = `cellWidth` ×
+`cellWidth/2` everywhere.
+
+### Changed — Moved the grid-columns picker from the dashboard header to Settings
+
+The new-tab header was getting cluttered with FREE/PACK, GRID picker,
+custom popover, and Add-Widget. The picker is now a proper section in
+**Settings → Dashboard** with presets (`4, 8, 12, 16, 20, 24, 30, 40, 50`)
+plus a custom input bounded `[4, 50]`. Changes apply live: a new
+`setCurrentGridCols(n)` helper in `frontend/src/lib/layouts.js` writes
+to `localStorage` and dispatches the existing
+`sb:widgets:layout-changed` event so a mounted dashboard reloads
+in-place without a refresh.
+
+The dashboard header still shows the current count read-only
+(`GRID 16 cols`) for context.
+
+Files:
+- `frontend/src/components/Widgets.jsx` — new `duplicateWidget`
+  helper, `WidgetFrame` context menu, stripped header picker, raised
+  `ROW_HEIGHT_MAX`.
+- `frontend/src/components/SettingsPage.jsx` — new `GridColsPicker`
+  component, new "Dashboard" section.
+- `frontend/src/lib/layouts.js` — new `getCurrentGridCols` /
+  `setCurrentGridCols` helpers and exported `GRID_COL_MIN/MAX/PRESETS`
+  constants.
+
 ## [v1.0.37] - 2026-05-29
 
 ### Changed — Apps widget suite picker is now a proper dropdown

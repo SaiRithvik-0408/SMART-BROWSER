@@ -97,3 +97,31 @@ export function renameSlot(slotIdx, name) {
   layouts[slotIdx] = { ...layouts[slotIdx], name: (name || '').slice(0, 40) };
   saveLayouts(layouts);
 }
+
+// =========================================================================
+// Live grid-column count. Used to be a picker in the dashboard header, now
+// surfaced from Settings — the storage key is shared so Widgets.jsx
+// hydrates from it on mount and we fire LAYOUT_CHANGED to update an
+// already-mounted dashboard in-place.
+// =========================================================================
+export const GRID_COL_MIN = 4;
+export const GRID_COL_MAX = 50;
+export const GRID_COL_DEFAULT = 20;
+export const GRID_COL_PRESETS = [4, 8, 12, 16, 20, 24, 30, 40, 50];
+
+export function getCurrentGridCols() {
+  const n = Number(window.localStorage.getItem(GRID_COLS_KEY));
+  if (Number.isFinite(n) && n >= GRID_COL_MIN && n <= GRID_COL_MAX) return n;
+  return GRID_COL_DEFAULT;
+}
+
+export function setCurrentGridCols(n) {
+  const clamped = Math.max(GRID_COL_MIN, Math.min(GRID_COL_MAX, Math.round(Number(n) || GRID_COL_DEFAULT)));
+  try { window.localStorage.setItem(GRID_COLS_KEY, String(clamped)); } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent(LAYOUT_CHANGED, {
+      detail: { gridCols: clamped },
+    }));
+  } catch {}
+  return clamped;
+}

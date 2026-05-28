@@ -329,8 +329,12 @@ function loadLayoutMode() {
 // clamp inside [16 px, 80 px] so dense grids don't end up with single-pixel
 // rows and sparse grids don't end up with absurdly tall ones.
 const GRID_MARGIN          = 8;        // px between widgets (and around outer edges)
-const ROW_HEIGHT_MIN       = 16;
-const ROW_HEIGHT_MAX       = 80;
+const ROW_HEIGHT_MIN       = 12;
+// The 80-px cap used to break the 2:1 width:height ratio at low column
+// counts (e.g. at 4 cols on a 1000-px screen, cellWidth=240 but rh was
+// pinned to 80 → 3:1). Raised to 240 so the ratio holds at every grid
+// size — a 1×1 widget is always exactly twice as wide as it is tall.
+const ROW_HEIGHT_MAX       = 240;
 const ROW_HEIGHT_RATIO     = 0.5;      // rowHeight = cellWidth × ratio
 function computeRowHeight(containerWidth, gridCols) {
   if (!containerWidth || !gridCols) return 40;
@@ -345,9 +349,6 @@ export default function Widgets({ onOpen }) {
   const [gridCols, setGridColsState] = useState(loadGridCols);
   const [layoutMode, setLayoutMode] = useState(loadLayoutMode);
   const [addAnchor, setAddAnchor] = useState(null);
-  const [gridMenuAnchor, setGridMenuAnchor] = useState(null);
-  const [customGridOpen, setCustomGridOpen] = useState(false);
-  const [customGridVal, setCustomGridVal] = useState(String(DEFAULT_GRID_COLS));
   const [containerWidth, setContainerWidth] = useState(0);
   const containerRef = React.useRef(null);
 
@@ -401,12 +402,6 @@ export default function Widgets({ onOpen }) {
     });
   };
 
-  const applyCustomGrid = () => {
-    setGridCols(customGridVal);
-    setCustomGridOpen(false);
-    setGridMenuAnchor(null);
-  };
-
   // Measure available width so the grid can lay out at the right pixel size.
   useEffect(() => {
     if (!containerRef.current) return;
@@ -449,6 +444,26 @@ export default function Widgets({ onOpen }) {
     const meta = catalogFor(w.type);
     return meta?.removable === false;   // keep non-removable widgets in the list
   }));
+  // Duplicate a widget — clones type/config/size and drops the copy directly
+  // BELOW the original so the user can see it appear without scrolling.
+  // Singleton-style widgets (brand, header) can be duplicated since the
+  // user explicitly asked for "Duplicate" — there's nothing inherent that
+  // prevents multiple copies. Generates a fresh id so React keeps state
+  // distinct between the copies.
+  const duplicateWidget = (id) => setWidgets((prev) => {
+    const src = prev.find((w) => w.id === id);
+    if (!src) return prev;
+    const newId = `${src.type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const layout = src.layout || { x: 0, y: 0, w: 4, h: 4 };
+    const copy = {
+      ...src,
+      id: newId,
+      // Deep-clone config to avoid the duplicate sharing nested arrays/objects.
+      config: structuredClone ? structuredClone(src.config || {}) : JSON.parse(JSON.stringify(src.config || {})),
+      layout: { x: layout.x, y: layout.y + layout.h, w: layout.w, h: layout.h },
+    };
+    return [...prev, copy];
+  });
   const updateConfig = (id, patch) =>
     setWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, config: { ...w.config, ...patch } } : w)));
 
@@ -481,7 +496,7 @@ export default function Widgets({ onOpen }) {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5, gap: 1, flexWrap: 'wrap' }}>
         <Typography component="div" sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, textTransform: 'uppercase',
           color: '#5b6385', display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
-          drag the dotted handle to move · grab any side/corner pill to resize · min size 1×1
+          drag the dotted handle to move · grab any side/corner pill to resize · right-click for more · min 1×1
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <Tooltip title={layoutMode === 'free'
@@ -499,54 +514,13 @@ export default function Widgets({ onOpen }) {
             </Button>
           </Tooltip>
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 1, color: '#5b6385' }}>GRID</Typography>
-          {/* Replaced the plain Select with a menu so we can offer "Custom…"
-              and a numeric input alongside the preset column counts. */}
-          <Button
-            size="small" onClick={(e) => setGridMenuAnchor(e.currentTarget)}
-            sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 1, color: ACCENT, minWidth: 0, px: 0.5,
-              textTransform: 'none' }}
-          >
-            {gridCols} cols ▾
-          </Button>
-          <Menu anchorEl={gridMenuAnchor} open={!!gridMenuAnchor && !customGridOpen} onClose={() => setGridMenuAnchor(null)}>
-            {GRID_COL_OPTIONS.map((n) => (
-              <MenuItem key={n} onClick={() => { setGridCols(n); setGridMenuAnchor(null); }}
-                selected={n === gridCols} sx={{ fontFamily: MONO, fontSize: 12 }}>
-                {n} cols
-              </MenuItem>
-            ))}
-            <MenuItem onClick={() => { setCustomGridVal(String(gridCols)); setCustomGridOpen(true); }}
-              sx={{ fontFamily: MONO, fontSize: 12, color: ACCENT }}>
-              Custom…
-            </MenuItem>
-          </Menu>
-          <Popover
-            open={customGridOpen} anchorEl={gridMenuAnchor}
-            onClose={() => { setCustomGridOpen(false); setGridMenuAnchor(null); }}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-            slotProps={{ paper: { sx: { p: 1.5, background: '#0a0e22', border: `1px solid ${LINE}` } } }}
-          >
-            <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 1, color: '#9aa3c7', mb: 0.75 }}>
-              CUSTOM COLUMNS ({GRID_COL_MIN}–{GRID_COL_MAX})
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-              <TextField
-                size="small" type="number" autoFocus
-                value={customGridVal} onChange={(e) => setCustomGridVal(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') applyCustomGrid(); }}
-                inputProps={{ min: GRID_COL_MIN, max: GRID_COL_MAX, style: { fontFamily: MONO } }}
-                sx={{ width: 96, '& .MuiInputBase-input': { color: '#e6e9f5' } }}
-              />
-              <Button onClick={applyCustomGrid} size="small"
-                sx={{ fontFamily: MONO, fontSize: 11, color: ACCENT }}>
-                APPLY
-              </Button>
-            </Box>
-          </Popover>
-        </Box>
+        {/* Grid columns picker was moved to Settings → Dashboard so the
+            new-tab header stays focused on per-session actions (add widget,
+            free/pack). The current grid count is still displayed read-only
+            below for context. */}
+        <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 1, color: '#5b6385' }}>
+          GRID {gridCols} cols
+        </Typography>
         <Button
           size="small" startIcon={<AddIcon />}
           onClick={(e) => setAddAnchor(e.currentTarget)}
@@ -639,6 +613,7 @@ export default function Widgets({ onOpen }) {
                 <WidgetFrame
                   widget={w}
                   onRemove={() => removeWidget(w.id)}
+                  onDuplicate={() => duplicateWidget(w.id)}
                   onConfig={(patch) => updateConfig(w.id, patch)}
                   onOpen={onOpen}
                 />
@@ -651,13 +626,31 @@ export default function Widgets({ onOpen }) {
   );
 }
 
-function WidgetFrame({ widget, onRemove, onConfig, onOpen }) {
+function WidgetFrame({ widget, onRemove, onDuplicate, onConfig, onOpen }) {
   const meta = catalogFor(widget.type);
   // Brand + header widgets are "chromeless" — they own their entire frame
   // and don't show our standard title bar. The frame still has to host
   // the drag handle (so the user can move them) but it's an overlay, not
   // a strip at the top, so the widget content can use the full space.
   const chromeless = widget.type === 'brand' || widget.type === 'header';
+
+  // Right-click → context menu (Duplicate / Remove). Anchored at the
+  // pointer position with `anchorReference="anchorPosition"` so it lands
+  // exactly where the user clicked, not at a fixed corner of the widget.
+  const [ctxPos, setCtxPos] = useState(null);
+  const openCtx = (e) => {
+    // Inside form controls (text inputs in Notes, ticker input in Stocks,
+    // etc.) we want the native browser context menu so copy/paste still
+    // works. Skip our own menu when the click target is editable.
+    const t = e.target;
+    const editable = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    if (editable) return;
+    e.preventDefault();
+    setCtxPos({ left: e.clientX + 2, top: e.clientY - 4 });
+  };
+  const closeCtx = () => setCtxPos(null);
+  const ctxDuplicate = () => { closeCtx(); onDuplicate?.(); };
+  const ctxRemove    = () => { closeCtx(); onRemove?.(); };
 
   const headerStrip = (
     <Box className="sb-drag-handle" sx={{
@@ -713,7 +706,9 @@ function WidgetFrame({ widget, onRemove, onConfig, onOpen }) {
   );
 
   return (
-    <Box sx={{
+    <Box
+      onContextMenu={openCtx}
+      sx={{
       position: 'relative',
       height: '100%', width: '100%', display: 'flex', flexDirection: 'column',
       p: chromeless ? 0.5 : 1.25, borderRadius: '4px',
@@ -744,6 +739,27 @@ function WidgetFrame({ widget, onRemove, onConfig, onOpen }) {
         {widget.type === 'ai' && <AiWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
         {widget.type === 'news' && <NewsFeed onOpen={onOpen} compact />}
       </Box>
+
+      {/* Right-click menu — Duplicate clones the widget directly below the
+          original, Remove only renders when the catalog entry allows it
+          (e.g. brand stays put). */}
+      <Menu
+        open={!!ctxPos}
+        onClose={closeCtx}
+        anchorReference="anchorPosition"
+        anchorPosition={ctxPos || undefined}
+        slotProps={{ paper: { sx: { minWidth: 160, background: '#0a0e22',
+          border: `1px solid ${LINE}`, borderRadius: 1.5 } } }}
+      >
+        <MenuItem onClick={ctxDuplicate} sx={{ fontFamily: MONO, fontSize: 12, gap: 1 }}>
+          Duplicate
+        </MenuItem>
+        {meta?.removable !== false && (
+          <MenuItem onClick={ctxRemove} sx={{ fontFamily: MONO, fontSize: 12, gap: 1, color: ACCENT }}>
+            Remove
+          </MenuItem>
+        )}
+      </Menu>
     </Box>
   );
 }
