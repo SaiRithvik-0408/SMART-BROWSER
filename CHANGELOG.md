@@ -8,6 +8,100 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.34] - 2026-05-29
+
+### Changed — Edge-to-edge widget grid, free placement, custom column count up to 50
+
+The new-tab dashboard was capped to `min(1280px, 96vw)` and centered,
+leaving large empty strips on the sides of wide monitors. It also
+auto-packed widgets to the top so the user couldn't intentionally
+leave gaps between them. Both behaviors are gone.
+
+- **Edge-to-edge.** `HomePage` now stretches `Widgets` across the full
+  inner width of the new-tab area, with a single ~12 px gutter on each
+  side. The grid measures its container via `ResizeObserver` and lays
+  out cells across whatever width is available.
+- **Free placement.** New `layoutMode` state (`free` / `compact`)
+  toggles `compactType` between `null` and `'vertical'` on the
+  underlying `GridLayout`. Default is `free` — widgets stay exactly
+  where the user drops them, gaps between widgets are preserved, and
+  `preventCollision={true}` keeps them from overlapping. A new
+  `FREE` / `PACK` chip in the dashboard header flips the mode.
+- **Custom column count.** The grid-size picker is now a real menu
+  with `8 / 12 / 16 / 20 / 24 / 30 / 40 / 50` presets plus a
+  **Custom…** entry that pops a numeric input clamped to 4–50. The
+  choice is persisted in `localStorage` and rescales every widget's
+  `x` / `w` proportionally so the layout doesn't break on the new
+  grid width.
+
+### Fixed — Widgets are now resizable from all 8 sides/corners with always-on handles
+
+The side-edge resize handles existed but their default opacity was
+0.35 and they had no background unless hovered, so users couldn't tell
+they were grabbable.
+
+- Default opacity bumped to 0.6 with a translucent red fill, full
+  opacity + accent red glow + a 1.15× pop on hover so every side and
+  corner reads as a control.
+- Corner handles enlarged to 12×12 with a bordered red fill; edge
+  pills enlarged to 6×32 / 32×6.
+- `pointerEvents: 'auto'` and `zIndex: 5` added defensively to the
+  handles so child widgets can't accidentally swallow the drag events.
+
+### Fixed — Header widget text no longer breaks into vertical letters
+
+When the user typed in a `HeaderWidget`, characters were rendered one
+per line (e.g. typing `sam` showed `s` / `a` / `m` stacked). The bug:
+`contentEditable` was on the outer flex container, which had the dot
+and the text as two child spans. The browser inserted each typed
+character as a new text-node sibling between those spans, and because
+the parent was a flex container each text node became its own flex
+item — laid out on its own line.
+
+Fix: only the inner text span is now `contentEditable`, with
+`whiteSpace: 'nowrap'` and `display: 'inline-block'`. The outer flex
+container is no longer editable. Imperative `useEffect` keeps the DOM
+text in sync with the `config.text` prop without clobbering the
+user's caret position.
+
+### Added — BrandWidget collapses to an inline SB logo when too narrow
+
+When the `BrandWidget` was shrunk past ~160 px wide, the
+"SmartBrowser" wordmark clipped and looked broken. It now measures
+its own rendered width via `ResizeObserver` and swaps to an inline
+SVG `<BrandIcon />` (a rounded gradient square with "SB" inside)
+that scales down gracefully to a single grid cell. Above ~160 px it
+shows the full wordmark, above ~220 px it adds the
+"Private · Masked · Free" tagline.
+
+### Added — Stocks widget shows the full company / fund name
+
+Previously only the ticker symbol was visible. Yahoo's chart API
+endpoint now requests `lang=en-US&region=US` so `meta.longName` /
+`meta.shortName` are populated, and a `SYMBOL_NAMES` fallback table
+covers the default ETFs in case Yahoo trims the payload. The name
+renders in its own column when the widget is at least 8 cells wide,
+or as a second line under the ticker when it's narrower.
+
+### Added — News widget supports 7 sources (BBC, Reuters, HN, TechCrunch, The Verge, Google News, ET)
+
+Only Economic Times feeds were available before. The source selector
+is now a dropdown next to the "NEWS" label with presets for:
+
+- Economic Times — Top / Markets / Tech / World
+- BBC News — Top / World / Tech / Markets (Business)
+- Reuters — fronted via Google News RSS queries
+- Hacker News — Frontpage / Show HN / Best / startups+economy
+- TechCrunch — Top / AI / Venture / Startups
+- The Verge — Top / Tech / World / Business
+- Google News — Top / World / Tech / Business
+
+The choice is persisted to `localStorage`. Feed parsing was upgraded
+to handle both RSS 2.0 (`<item>`) and Atom (`<entry>`) formats, with
+extended fallbacks for `media:content` images and `published` /
+`updated` / `dc:date` timestamps so all seven sources render
+consistently.
+
 ## [v1.0.33] - 2026-05-29
 
 ### Fixed — Ctrl+R no longer wipes your tabs; settings/extensions/etc. open as popups

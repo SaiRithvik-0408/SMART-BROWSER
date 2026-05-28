@@ -1,16 +1,97 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, Skeleton, IconButton, Tooltip, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { Box, Typography, Skeleton, IconButton, Tooltip, ToggleButtonGroup, ToggleButton,
+  Select, MenuItem } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { motion } from 'framer-motion';
 import { proxyUrlFor } from '../api/client';
 
-// Economic Times publishes free RSS feeds. They don't ship CORS headers, so we
-// fetch them through the local backend `/api/proxy` (which strips CORS / CSP).
-const ET_FEEDS = {
-  top:      'https://economictimes.indiatimes.com/rssfeedstopstories.cms',
-  markets:  'https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms',
-  tech:     'https://economictimes.indiatimes.com/tech/rssfeeds/13357270.cms',
-};
+// =========================================================================
+// News sources. Each source publishes one or more RSS / Atom feeds; none of
+// them ship CORS headers so we route every fetch through the local backend
+// `/api/proxy` (which strips CORS / CSP). To add a new source, add an
+// object to SOURCES with at least { id, label, sections: { key: url } }.
+// =========================================================================
+const SOURCES = [
+  {
+    id: 'et', label: 'Economic Times',
+    sections: {
+      top:     'https://economictimes.indiatimes.com/rssfeedstopstories.cms',
+      markets: 'https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms',
+      tech:    'https://economictimes.indiatimes.com/tech/rssfeeds/13357270.cms',
+      world:   'https://economictimes.indiatimes.com/news/international/rssfeeds/1898271.cms',
+    },
+  },
+  {
+    id: 'bbc', label: 'BBC News',
+    sections: {
+      top:     'https://feeds.bbci.co.uk/news/rss.xml',
+      world:   'https://feeds.bbci.co.uk/news/world/rss.xml',
+      tech:    'https://feeds.bbci.co.uk/news/technology/rss.xml',
+      markets: 'https://feeds.bbci.co.uk/news/business/rss.xml',
+    },
+  },
+  {
+    id: 'reuters', label: 'Reuters',
+    // Reuters killed their public RSS feeds in 2020 but Google News fronts
+    // them with a stable RSS endpoint per query, which is the same trick
+    // most aggregators (Feedly, NetNewsWire) use today.
+    sections: {
+      top:     'https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en',
+      world:   'https://news.google.com/rss/search?q=site:reuters.com+world&hl=en-US&gl=US&ceid=US:en',
+      tech:    'https://news.google.com/rss/search?q=site:reuters.com+technology&hl=en-US&gl=US&ceid=US:en',
+      markets: 'https://news.google.com/rss/search?q=site:reuters.com+markets&hl=en-US&gl=US&ceid=US:en',
+    },
+  },
+  {
+    id: 'hn', label: 'Hacker News',
+    sections: {
+      top:     'https://hnrss.org/frontpage',
+      markets: 'https://hnrss.org/newest?q=startup+OR+market+OR+economy',
+      tech:    'https://hnrss.org/show',
+      world:   'https://hnrss.org/best',
+    },
+  },
+  {
+    id: 'tc', label: 'TechCrunch',
+    sections: {
+      top:     'https://techcrunch.com/feed/',
+      tech:    'https://techcrunch.com/category/artificial-intelligence/feed/',
+      markets: 'https://techcrunch.com/category/venture/feed/',
+      world:   'https://techcrunch.com/category/startups/feed/',
+    },
+  },
+  {
+    id: 'verge', label: 'The Verge',
+    sections: {
+      top:     'https://www.theverge.com/rss/index.xml',
+      tech:    'https://www.theverge.com/rss/tech/index.xml',
+      world:   'https://www.theverge.com/rss/world/index.xml',
+      markets: 'https://www.theverge.com/rss/business/index.xml',
+    },
+  },
+  {
+    id: 'gnews', label: 'Google News',
+    sections: {
+      top:     'https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en',
+      world:   'https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en',
+      tech:    'https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en',
+      markets: 'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en',
+    },
+  },
+];
+
+const SECTIONS = [
+  { key: 'top',     label: 'Top' },
+  { key: 'world',   label: 'World' },
+  { key: 'markets', label: 'Markets' },
+  { key: 'tech',    label: 'Tech' },
+];
+
+function resolveFeedUrl(sourceId, sectionKey) {
+  const src = SOURCES.find((s) => s.id === sourceId) || SOURCES[0];
+  return src.sections[sectionKey] || src.sections.top || Object.values(src.sections)[0];
+}
+
 const COUNT = 12;
 
 const MONO = "'JetBrains Mono', 'SFMono-Regular', ui-monospace, Menlo, monospace";
@@ -19,7 +100,7 @@ const SURFACE = 'rgba(8,9,14,0.72)';
 const LINE = 'rgba(255,255,255,0.10)';
 
 function hostOf(url) {
-  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'economictimes.indiatimes.com'; }
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 }
 function ago(dateStr) {
   const t = Date.parse(dateStr);
@@ -38,30 +119,78 @@ async function loadFeed(feedUrl) {
   const text = await res.text();
   const doc = new DOMParser().parseFromString(text, 'text/xml');
   if (doc.querySelector('parsererror')) throw new Error('parse error');
-  return Array.from(doc.querySelectorAll('item')).slice(0, COUNT).map((it) => {
-    const enclosure = it.querySelector('enclosure');
+
+  // Support both RSS 2.0 (<item>) and Atom (<entry>) feeds — some sources
+  // (BBC, ET, HN) ship RSS 2.0; others (some Google News variants, custom
+  // CDNs) ship Atom. We normalize both into the same { title, url,
+  // summary, pubDate, image } shape.
+  const isAtom = doc.documentElement.tagName.toLowerCase() === 'feed';
+  const itemTag = isAtom ? 'entry' : 'item';
+  return Array.from(doc.getElementsByTagName(itemTag)).slice(0, COUNT).map((it) => {
+    let url = '';
+    if (isAtom) {
+      // Atom: <link rel="alternate" href="…"/> — prefer rel=alternate, fall
+      // back to the first <link>.
+      const links = Array.from(it.getElementsByTagName('link'));
+      const alt = links.find((l) => (l.getAttribute('rel') || 'alternate') === 'alternate') || links[0];
+      url = alt?.getAttribute('href') || '';
+    } else {
+      url = (it.getElementsByTagName('link')[0]?.textContent || '').trim();
+    }
+    const enclosure = it.getElementsByTagName('enclosure')[0];
+    const mediaContent = it.getElementsByTagName('media:content')[0]
+      || it.getElementsByTagName('content')[0];
+    const image = enclosure?.getAttribute('url')
+      || mediaContent?.getAttribute('url')
+      || null;
+    const dateEl = it.getElementsByTagName('pubDate')[0]
+      || it.getElementsByTagName('published')[0]
+      || it.getElementsByTagName('updated')[0]
+      || it.getElementsByTagName('dc:date')[0];
+    const descEl = it.getElementsByTagName('description')[0]
+      || it.getElementsByTagName('summary')[0]
+      || it.getElementsByTagName('content')[0];
     return {
-      title:   stripTags(it.querySelector('title')?.textContent),
-      url:     (it.querySelector('link')?.textContent || '').trim(),
-      summary: stripTags(it.querySelector('description')?.textContent).slice(0, 220),
-      pubDate: it.querySelector('pubDate')?.textContent || '',
-      image:   enclosure?.getAttribute('url') || null,
+      title:   stripTags(it.getElementsByTagName('title')[0]?.textContent),
+      url,
+      summary: stripTags(descEl?.textContent).slice(0, 220),
+      pubDate: dateEl?.textContent || '',
+      image,
     };
   });
 }
 
+const SOURCE_STORAGE_KEY = 'smartbrowser.news.source.v1';
+
 export default function NewsFeed({ onOpen, compact }) {
   const [section, setSection] = useState('top');
+  const [sourceId, setSourceId] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SOURCE_STORAGE_KEY);
+      if (saved && SOURCES.some((s) => s.id === saved)) return saved;
+    } catch {}
+    return 'et';
+  });
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
 
-  const load = async (which = section) => {
+  useEffect(() => { try { localStorage.setItem(SOURCE_STORAGE_KEY, sourceId); } catch {} }, [sourceId]);
+
+  const load = async (which = section, srcId = sourceId) => {
     setError(''); setItems(null);
-    try { setItems(await loadFeed(ET_FEEDS[which])); }
+    try { setItems(await loadFeed(resolveFeedUrl(srcId, which))); }
     catch (e) { setError(e.message || 'failed'); }
   };
 
-  useEffect(() => { load(section); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [section]);
+  const currentSource = SOURCES.find((s) => s.id === sourceId) || SOURCES[0];
+
+  // If the picked source doesn't have the current section, snap back to
+  // "top" instead of silently showing nothing.
+  useEffect(() => {
+    if (!currentSource.sections[section]) setSection('top');
+  }, [currentSource, section]);
+
+  useEffect(() => { load(section, sourceId); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [section, sourceId]);
 
   // Compact mode = embedded in a widget grid cell; ditch outer width/padding
   // and let the parent (WidgetFrame) own its sizing and overflow.
@@ -73,13 +202,31 @@ export default function NewsFeed({ onOpen, compact }) {
     <Box sx={outerSx}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5,
         flexWrap: 'wrap', gap: 1 }}>
-        <Typography sx={{ fontFamily: MONO, fontSize: 12, letterSpacing: 3, textTransform: 'uppercase',
-          color: '#9aa3c7', display: 'flex', alignItems: 'center', gap: 1 }}>
+        {/* The source label is now a dropdown so the user can pick between
+            Economic Times / BBC / Reuters / Hacker News / TechCrunch /
+            The Verge / Google News on the fly. The selection is persisted
+            in localStorage. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
           <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT }} />
-          Economic Times
-        </Typography>
+          <Select
+            value={sourceId} onChange={(e) => setSourceId(e.target.value)}
+            variant="standard" disableUnderline
+            sx={{ fontFamily: MONO, fontSize: 12, letterSpacing: 3, textTransform: 'uppercase',
+              color: '#9aa3c7',
+              '& .MuiSelect-select': { p: 0, pr: '20px !important' },
+              '& .MuiSelect-icon': { color: ACCENT },
+            }}
+          >
+            {SOURCES.map((s) => (
+              <MenuItem key={s.id} value={s.id}
+                sx={{ fontFamily: MONO, fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' }}>
+                {s.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </Box>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
           <ToggleButtonGroup
             exclusive size="small" value={section}
             onChange={(_e, v) => v && setSection(v)}
@@ -92,9 +239,9 @@ export default function NewsFeed({ onOpen, compact }) {
               },
             }}
           >
-            <ToggleButton value="top">Top</ToggleButton>
-            <ToggleButton value="markets">Markets</ToggleButton>
-            <ToggleButton value="tech">Tech</ToggleButton>
+            {SECTIONS.filter((s) => currentSource.sections[s.key]).map((s) => (
+              <ToggleButton key={s.key} value={s.key}>{s.label}</ToggleButton>
+            ))}
           </ToggleButtonGroup>
           <Tooltip title="Refresh">
             <IconButton size="small" onClick={() => load()} sx={{ color: '#9aa3c7' }}>

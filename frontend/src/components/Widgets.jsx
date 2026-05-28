@@ -48,8 +48,14 @@ const GRID_COLS_KEY      = 'smartbrowser.widgets.gridCols.v1';
 // so we scale every widget's `x` / `w` when migrating.
 const V5_REFERENCE_COLS  = 12;
 const DEFAULT_GRID_COLS  = 20;
-// Column count options exposed in the dashboard header dropdown.
-const GRID_COL_OPTIONS   = [8, 12, 16, 20, 24, 30];
+// Hard cap on the number of columns the user can pick. Past ~50 the cells
+// become single-pixel wide on most screens and react-grid-layout starts
+// dropping frames during drags.
+const GRID_COL_MAX       = 50;
+const GRID_COL_MIN       = 4;
+// Preset column counts exposed in the dashboard header dropdown — the
+// user can also pick "Custom…" to type any number between 4 and 50.
+const GRID_COL_OPTIONS   = [8, 12, 16, 20, 24, 30, 40, 50];
 
 // Nothing-UI-inspired tokens: monospace, uppercase, flat black surfaces,
 // a single red accent, dotted grid texture.
@@ -290,9 +296,24 @@ function loadGridCols() {
   try {
     const raw = localStorage.getItem(GRID_COLS_KEY);
     const n = Number(raw);
-    if (Number.isFinite(n) && n >= 4 && n <= 60) return Math.round(n);
+    if (Number.isFinite(n) && n >= GRID_COL_MIN && n <= GRID_COL_MAX) return Math.round(n);
   } catch {}
   return DEFAULT_GRID_COLS;
+}
+
+// Free-placement vs compact (auto-pack to top) toggle. The user explicitly
+// asked to be able to leave intentional gaps between widgets, so we now
+// default to FREE placement — widgets stay exactly where they were
+// dropped, even if there's empty space above them. The previous behavior
+// (auto-compact upward) is still available via the "compact" mode toggle
+// for users who want a tight pack.
+const LAYOUT_MODE_KEY = 'smartbrowser.widgets.layoutMode.v1';
+function loadLayoutMode() {
+  try {
+    const raw = localStorage.getItem(LAYOUT_MODE_KEY);
+    if (raw === 'free' || raw === 'compact') return raw;
+  } catch {}
+  return 'free';
 }
 
 // Grid config — keep in sync with the CSS overrides below.
@@ -302,7 +323,11 @@ const GRID_MARGIN  = 8;        // px between widgets (and around outer edges)
 export default function Widgets({ onOpen }) {
   const [widgets, setWidgets] = useState(loadWidgets);
   const [gridCols, setGridColsState] = useState(loadGridCols);
+  const [layoutMode, setLayoutMode] = useState(loadLayoutMode);
   const [addAnchor, setAddAnchor] = useState(null);
+  const [gridMenuAnchor, setGridMenuAnchor] = useState(null);
+  const [customGridOpen, setCustomGridOpen] = useState(false);
+  const [customGridVal, setCustomGridVal] = useState(String(DEFAULT_GRID_COLS));
   const [containerWidth, setContainerWidth] = useState(0);
   const containerRef = React.useRef(null);
 
@@ -314,16 +339,27 @@ export default function Widgets({ onOpen }) {
     try { localStorage.setItem(GRID_COLS_KEY, String(gridCols)); } catch {}
   }, [gridCols]);
 
+  useEffect(() => {
+    try { localStorage.setItem(LAYOUT_MODE_KEY, layoutMode); } catch {}
+  }, [layoutMode]);
+
   // When the user picks a new grid column count, rescale every widget so
   // its proportional position/width is preserved instead of staying anchored
   // to the same absolute cell index (which would look broken on more / fewer
   // columns). Heights/y are untouched.
   const setGridCols = (next) => {
+    const clamped = Math.max(GRID_COL_MIN, Math.min(GRID_COL_MAX, Math.round(Number(next) || DEFAULT_GRID_COLS)));
     setGridColsState((prev) => {
-      if (prev === next) return prev;
-      setWidgets((all) => rescaleCols(all, prev, next));
-      return next;
+      if (prev === clamped) return prev;
+      setWidgets((all) => rescaleCols(all, prev, clamped));
+      return clamped;
     });
+  };
+
+  const applyCustomGrid = () => {
+    setGridCols(customGridVal);
+    setCustomGridOpen(false);
+    setGridMenuAnchor(null);
   };
 
   // Measure available width so the grid can lay out at the right pixel size.
@@ -384,26 +420,87 @@ export default function Widgets({ onOpen }) {
   };
 
   const layout = toLayoutArray(widgets);
+  // react-grid-layout uses `compactType` to decide whether to auto-pack
+  // widgets upward. In "free" mode we pass null so widgets stay exactly
+  // where the user dropped them (and gaps between widgets are preserved).
+  // `preventCollision` keeps widgets from overlapping each other.
+  const rglCompactType = layoutMode === 'free' ? null : 'vertical';
+  const rglPreventCollision = layoutMode === 'free';
 
   return (
-    <Box sx={{ width: 'min(1280px, 96vw)', mt: 2 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5, gap: 1 }}>
+    // Edge-to-edge: the grid fills 100% of its parent (HomePage gives it
+    // the full inner width of the new-tab page). Previously it was capped
+    // to min(1280px, 96vw) and centered — the user explicitly asked for
+    // the dashboard to span the full window width.
+    <Box sx={{ width: '100%', mt: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5, gap: 1, flexWrap: 'wrap' }}>
         <Typography component="div" sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, textTransform: 'uppercase',
-          color: '#5b6385', display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+          color: '#5b6385', display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
           drag the dotted handle to move · grab any side/corner pill to resize · min size 1×1
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Tooltip title={layoutMode === 'free'
+            ? 'Free placement — widgets stay where you put them (click to switch to compact pack)'
+            : 'Compact pack — widgets auto-pack toward the top (click to switch to free placement)'}>
+            <Button
+              size="small" onClick={() => setLayoutMode(layoutMode === 'free' ? 'compact' : 'free')}
+              sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase',
+                color: layoutMode === 'free' ? ACCENT : '#9aa3c7',
+                border: `1px solid ${layoutMode === 'free' ? ACCENT : LINE}`,
+                px: 1, py: 0.25, minWidth: 0, borderRadius: '4px',
+              }}
+            >
+              {layoutMode === 'free' ? 'FREE' : 'PACK'}
+            </Button>
+          </Tooltip>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 1, color: '#5b6385' }}>GRID</Typography>
-          <Select
-            value={gridCols} onChange={(e) => setGridCols(Number(e.target.value))}
-            variant="standard" disableUnderline
-            sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 1, color: ACCENT,
-              '& .MuiSelect-icon': { color: ACCENT } }}
+          {/* Replaced the plain Select with a menu so we can offer "Custom…"
+              and a numeric input alongside the preset column counts. */}
+          <Button
+            size="small" onClick={(e) => setGridMenuAnchor(e.currentTarget)}
+            sx={{ fontFamily: MONO, fontSize: 11, letterSpacing: 1, color: ACCENT, minWidth: 0, px: 0.5,
+              textTransform: 'none' }}
           >
+            {gridCols} cols ▾
+          </Button>
+          <Menu anchorEl={gridMenuAnchor} open={!!gridMenuAnchor && !customGridOpen} onClose={() => setGridMenuAnchor(null)}>
             {GRID_COL_OPTIONS.map((n) => (
-              <MenuItem key={n} value={n} sx={{ fontFamily: MONO, fontSize: 12 }}>{n} cols</MenuItem>
+              <MenuItem key={n} onClick={() => { setGridCols(n); setGridMenuAnchor(null); }}
+                selected={n === gridCols} sx={{ fontFamily: MONO, fontSize: 12 }}>
+                {n} cols
+              </MenuItem>
             ))}
-          </Select>
+            <MenuItem onClick={() => { setCustomGridVal(String(gridCols)); setCustomGridOpen(true); }}
+              sx={{ fontFamily: MONO, fontSize: 12, color: ACCENT }}>
+              Custom…
+            </MenuItem>
+          </Menu>
+          <Popover
+            open={customGridOpen} anchorEl={gridMenuAnchor}
+            onClose={() => { setCustomGridOpen(false); setGridMenuAnchor(null); }}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            slotProps={{ paper: { sx: { p: 1.5, background: '#0a0e22', border: `1px solid ${LINE}` } } }}
+          >
+            <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 1, color: '#9aa3c7', mb: 0.75 }}>
+              CUSTOM COLUMNS ({GRID_COL_MIN}–{GRID_COL_MAX})
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+              <TextField
+                size="small" type="number" autoFocus
+                value={customGridVal} onChange={(e) => setCustomGridVal(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') applyCustomGrid(); }}
+                inputProps={{ min: GRID_COL_MIN, max: GRID_COL_MAX, style: { fontFamily: MONO } }}
+                sx={{ width: 96, '& .MuiInputBase-input': { color: '#e6e9f5' } }}
+              />
+              <Button onClick={applyCustomGrid} size="small"
+                sx={{ fontFamily: MONO, fontSize: 11, color: ACCENT }}>
+                APPLY
+              </Button>
+            </Box>
+          </Popover>
         </Box>
         <Button
           size="small" startIcon={<AddIcon />}
@@ -434,39 +531,44 @@ export default function Widgets({ onOpen }) {
         },
         '& .react-grid-item > .react-resizable-handle': {
           backgroundImage: 'none',
-          opacity: 0.35,
-          transition: 'opacity 120ms ease, background 120ms ease',
+          // Was 0.35 then 1 on hover — but corner handles were so subtle the
+          // user couldn't tell every side was grabbable. Always-on at a
+          // moderate opacity, with a strong hover glow.
+          opacity: 0.6,
+          transition: 'opacity 120ms ease, background 120ms ease, transform 120ms ease',
+          pointerEvents: 'auto', zIndex: 5,
         },
         // Corners: small filled squares anchored to the corners.
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-se,\
            & .react-grid-item > .react-resizable-handle.react-resizable-handle-sw,\
            & .react-grid-item > .react-resizable-handle.react-resizable-handle-ne,\
            & .react-grid-item > .react-resizable-handle.react-resizable-handle-nw': {
-          width: 14, height: 14, background: 'rgba(255,255,255,0.18)',
-          borderRadius: 2,
+          width: 12, height: 12, background: 'rgba(214,69,61,0.55)',
+          borderRadius: 2, border: '1px solid rgba(255,255,255,0.25)',
         },
-        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-se': { right: 1, bottom: 1, cursor: 'nwse-resize' },
-        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-sw': { left:  1, bottom: 1, cursor: 'nesw-resize' },
-        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-ne': { right: 1, top:    1, cursor: 'nesw-resize' },
-        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-nw': { left:  1, top:    1, cursor: 'nwse-resize' },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-se': { right: 2, bottom: 2, cursor: 'nwse-resize' },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-sw': { left:  2, bottom: 2, cursor: 'nesw-resize' },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-ne': { right: 2, top:    2, cursor: 'nesw-resize' },
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-nw': { left:  2, top:    2, cursor: 'nwse-resize' },
         // Edges: thin pills centered along each side.
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-e,\
            & .react-grid-item > .react-resizable-handle.react-resizable-handle-w': {
-          width: 5, height: 28, top: '50%', transform: 'translateY(-50%)',
-          background: 'rgba(255,255,255,0.18)', borderRadius: 3,
+          width: 6, height: 32, top: '50%', transform: 'translateY(-50%)',
+          background: 'rgba(214,69,61,0.45)', borderRadius: 3,
         },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-e': { right: 0, cursor: 'ew-resize' },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-w': { left:  0, cursor: 'ew-resize' },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-s,\
            & .react-grid-item > .react-resizable-handle.react-resizable-handle-n': {
-          width: 28, height: 5, left: '50%', transform: 'translateX(-50%)',
-          background: 'rgba(255,255,255,0.18)', borderRadius: 3,
+          width: 32, height: 6, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(214,69,61,0.45)', borderRadius: 3,
         },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-s': { bottom: 0, cursor: 'ns-resize' },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-n': { top:    0, cursor: 'ns-resize' },
-        // On hover: surface every handle and glow it red so the user knows
+        // On hover: brighten every handle and glow it red so the user knows
         // they can drag from any side or corner.
         '& .react-grid-item:hover > .react-resizable-handle': { opacity: 1, background: ACCENT },
+        '& .react-grid-item > .react-resizable-handle:hover':  { opacity: 1, background: ACCENT, transform: 'scale(1.15)' },
         '& .react-draggable-dragging': { cursor: 'grabbing !important', zIndex: 10 },
         '& .react-grid-item.resizing':  { zIndex: 10, opacity: 0.95 },
       }}>
@@ -480,9 +582,10 @@ export default function Widgets({ onOpen }) {
             margin={[GRID_MARGIN, GRID_MARGIN]}
             containerPadding={[0, 0]}
             draggableHandle=".sb-drag-handle"
-            compactType="vertical"
-            preventCollision={false}
+            compactType={rglCompactType}
+            preventCollision={rglPreventCollision}
             isBounded={false}
+            allowOverlap={false}
             resizeHandles={['s', 'w', 'e', 'n', 'sw', 'nw', 'se', 'ne']}
             onLayoutChange={onLayoutChange}
           >
@@ -605,31 +708,90 @@ function WidgetFrame({ widget, onRemove, onConfig, onOpen }) {
 // sizes its typography to fit the widget's actual pixel size so it looks
 // crisp whether it's a tiny 1×1 tile or a hero 12×8 banner.
 // ===========================================================================
-function BrandWidget({ layout }) {
-  // Estimate widget pixel height from layout.h (40px row height + 8px gutters)
-  // so we can drop / shrink the tagline as the widget gets smaller.
-  const cells = (layout?.h || 4);
-  const px = cells * 40 + (cells - 1) * 8;
-  const big = px >= 110;
-  const showTagline = px >= 80;
+// Inline SVG logo that uses the same gradient as the "SmartBrowser"
+// wordmark. We render this when the widget is too narrow to comfortably
+// fit the full wordmark, so the brand is always recognizable regardless
+// of how the user has resized the tile.
+function BrandIcon({ size = 40 }) {
+  const gid = React.useId();   // unique gradient id per instance
   return (
-    <Box sx={{
+    <svg viewBox="0 0 64 64" width={size} height={size} style={{ display: 'block' }}>
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%"   stopColor="#7aa2ff" />
+          <stop offset="50%"  stopColor="#a78bfa" />
+          <stop offset="100%" stopColor="#34d399" />
+        </linearGradient>
+      </defs>
+      <rect x="6" y="6" width="52" height="52" rx="13" ry="13"
+        fill="none" stroke={`url(#${gid})`} strokeWidth="3.5" />
+      <text x="32" y="42" textAnchor="middle"
+        fontFamily="ui-sans-serif, system-ui, -apple-system, Inter, sans-serif"
+        fontWeight="800" fontSize="28" letterSpacing="-1.2"
+        fill={`url(#${gid})`}>
+        SB
+      </text>
+    </svg>
+  );
+}
+
+function BrandWidget() {
+  // Measure the actual rendered size of the widget so we can decide
+  // between "icon only" and "full wordmark" regardless of how many grid
+  // columns the user configured (col-width estimates from `layout.w`
+  // alone are wrong on dense 50-col grids).
+  const rootRef = React.useRef(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  React.useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // ~160 px is the minimum width at which the gradient wordmark renders
+  // legibly with the default font scaling. Below that we collapse to the
+  // SB logo block, which scales gracefully down to a single grid cell.
+  const showIconOnly = size.w > 0 && size.w < 160;
+  const big          = size.h >= 110 && !showIconOnly;
+  const showTagline  = size.h >= 80  && !showIconOnly && size.w >= 220;
+
+  if (showIconOnly) {
+    const iconSize = Math.max(20, Math.min(size.h * 0.78, size.w * 0.78, 96));
+    return (
+      <Box ref={rootRef} sx={{
+        width: '100%', height: '100%',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <BrandIcon size={iconSize} />
+      </Box>
+    );
+  }
+
+  return (
+    <Box ref={rootRef} sx={{
       width: '100%', height: '100%',
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      gap: 0.5, px: 1, minWidth: 0,
     }}>
       <Typography sx={{
         fontWeight: 800, letterSpacing: -1.0, textAlign: 'center', lineHeight: 1,
         fontSize: big ? 'clamp(28px, 5.5vw, 60px)' : 'clamp(16px, 3.5vw, 30px)',
         background: 'linear-gradient(90deg,#7aa2ff,#a78bfa,#34d399)',
         WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
       }}>
         Smart<span style={{ fontWeight: 400 }}>Browser</span>
       </Typography>
       {showTagline && (
         <Typography sx={{
-          display: 'block', textAlign: 'center', mt: 0.5,
+          display: 'block', textAlign: 'center',
           color: '#9aa3c7', fontFamily: MONO, fontSize: big ? 11 : 9,
           letterSpacing: 2, textTransform: 'uppercase',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
         }}>
           Private · Masked · Free
         </Typography>
@@ -650,33 +812,65 @@ function HeaderWidget({ config, onConfig, layout }) {
   const cells = (layout?.h || 2);
   const px = cells * 40 + (cells - 1) * 8;
   const big = px >= 80;
-  const handleChange = (e) => {
-    const val = e.currentTarget.textContent || '';
-    onConfig({ text: val });
+  const editableRef = React.useRef(null);
+
+  // Sync external `text` changes (e.g. config restored from storage) into
+  // the contentEditable DOM. We can't bind `textContent` declaratively in
+  // React, so we imperatively set it whenever `text` changes AND the user
+  // isn't actively editing (the element doesn't have focus). Without this
+  // guard, every keypress would clobber the caret position.
+  React.useEffect(() => {
+    const el = editableRef.current;
+    if (!el) return;
+    if (document.activeElement === el) return;
+    if (el.textContent !== text) el.textContent = text;
+  }, [text]);
+
+  const commit = () => {
+    const val = (editableRef.current?.textContent || '').replace(/\s+/g, ' ').trim();
+    if (val !== text) onConfig({ text: val });
   };
+
+  // The PREVIOUS implementation put contentEditable on the outer flex box
+  // and tried to keep the dot + the text span as React children inside it.
+  // The browser's editor inserted each typed character as a sibling text
+  // node BETWEEN those spans, and because the outer box was a flex
+  // container the new text nodes were laid out as separate flex items
+  // (each on its own line) — that's why "sam" rendered as s / a / m
+  // stacked vertically. The fix is to keep React's flex container
+  // un-editable, and put contentEditable ONLY on the inner text span
+  // (which has whiteSpace:nowrap so it always lays out horizontally).
   return (
-    <Box
-      contentEditable
-      suppressContentEditableWarning
-      spellCheck={false}
-      onBlur={handleChange}
-      // Prevent newline → users can't drop a multi-line headline.
-      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
-      sx={{
-        width: '100%', height: '100%',
-        display: 'flex', alignItems: 'center', gap: 1, px: 1,
-        cursor: 'text', outline: 'none',
-        '&:focus': { background: 'rgba(255,255,255,0.03)', borderRadius: 1 },
-      }}
-    >
+    <Box sx={{
+      width: '100%', height: '100%',
+      display: 'flex', alignItems: 'center', gap: 1, px: 1,
+    }}>
       <Box component="span" sx={{ width: big ? 8 : 6, height: big ? 8 : 6, borderRadius: '50%',
-        background: ACCENT, flexShrink: 0 }} />
-      <Box component="span" sx={{
-        fontFamily: MONO, color: '#cdd3ee',
-        fontSize: big ? 'clamp(14px, 1.6vw, 22px)' : 'clamp(11px, 1.1vw, 14px)',
-        letterSpacing: big ? 4 : 3, textTransform: 'uppercase',
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
-      }}>{text}</Box>
+        background: ACCENT, flexShrink: 0, alignSelf: 'center' }} />
+      <Box
+        component="span"
+        ref={editableRef}
+        contentEditable
+        suppressContentEditableWarning
+        spellCheck={false}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+        }}
+        sx={{
+          flex: 1, minWidth: 0,
+          fontFamily: MONO, color: '#cdd3ee',
+          fontSize: big ? 'clamp(14px, 1.6vw, 22px)' : 'clamp(11px, 1.1vw, 14px)',
+          letterSpacing: big ? 4 : 3, textTransform: 'uppercase',
+          overflow: 'hidden', textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap', display: 'inline-block',
+          cursor: 'text', outline: 'none',
+          '&:focus': { background: 'rgba(255,255,255,0.03)', borderRadius: '2px' },
+        }}
+      >
+        {/* initial content; later updates flow through the useEffect above */}
+        {text}
+      </Box>
     </Box>
   );
 }
@@ -1172,10 +1366,25 @@ function WorldClockWidget({ config, onConfig }) {
 // Default watchlist — five major US ETFs covering broad market exposure.
 const DEFAULT_SYMBOLS = ['SPY', 'QQQ', 'VOO', 'VTI', 'DIA'];
 
+// Hard-coded fallback names for the default ETFs so the widget shows real
+// names even when Yahoo's API rate-limits us or trims the meta payload.
+const SYMBOL_NAMES = {
+  SPY: 'SPDR S&P 500 ETF Trust',
+  QQQ: 'Invesco QQQ Trust',
+  VOO: 'Vanguard S&P 500 ETF',
+  VTI: 'Vanguard Total Stock Market ETF',
+  DIA: 'SPDR Dow Jones Industrial Average ETF',
+  IWM: 'iShares Russell 2000 ETF',
+  AGG: 'iShares Core U.S. Aggregate Bond ETF',
+  GLD: 'SPDR Gold Shares',
+};
+
 async function fetchQuote(symbol) {
   // Yahoo Finance v8 chart API — key-less, returns last price + previous close.
   // Routed through the local backend `/api/proxy` to bypass CORS.
-  const upstream = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  // We tack on the optional ?lang=en-US so meta.longName / shortName are
+  // populated reliably (Yahoo sometimes omits them on bare requests).
+  const upstream = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d&lang=en-US&region=US`;
   const res = await fetch(proxyUrlFor(upstream), { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
@@ -1185,7 +1394,13 @@ async function fetchQuote(symbol) {
   const prev  = Number(meta.chartPreviousClose ?? meta.previousClose);
   const change = price - prev;
   const pct = prev ? (change / prev) * 100 : 0;
-  return { symbol: meta.symbol || symbol.toUpperCase(), price, change, pct, currency: meta.currency || 'USD' };
+  const sym = (meta.symbol || symbol).toUpperCase();
+  const name = meta.longName || meta.shortName || meta.instrumentName || SYMBOL_NAMES[sym] || '';
+  return {
+    symbol: sym, name,
+    price, change, pct,
+    currency: meta.currency || 'USD',
+  };
 }
 
 function fmtPrice(v, ccy) {
@@ -1222,7 +1437,11 @@ function StockWidget({ config, onConfig, layout }) {
   const removeSymbol = (s) => onConfig({ symbols: symbols.filter((x) => x !== s) });
   const resetDefaults = () => onConfig({ symbols: DEFAULT_SYMBOLS });
 
-  const compact = (layout?.w || 4) < 6;
+  // "compact" hides the company name column; we now ALWAYS show the name
+  // (the user explicitly asked) but in compact mode it goes on a second
+  // line under the ticker instead of in its own column, so the price stays
+  // visible even on narrow widgets.
+  const compact = (layout?.w || 4) < 8;
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -1240,18 +1459,36 @@ function StockWidget({ config, onConfig, layout }) {
         {quotes && quotes.map((q) => {
           const up = q.pct > 0, down = q.pct < 0;
           const color = q.error ? '#5b6385' : (up ? '#34d399' : down ? '#f87171' : '#9aa3c7');
+          const displayName = q.name || SYMBOL_NAMES[q.symbol] || '';
           return (
             <Box key={q.symbol} sx={{
               display: 'grid', alignItems: 'center', gap: 1,
-              gridTemplateColumns: compact ? '1fr auto auto auto' : '64px 1fr auto auto auto',
-              py: 0.4, borderBottom: `1px solid ${LINE}`,
+              gridTemplateColumns: compact
+                ? '1fr auto auto auto'                  // [ticker+name stacked] [price] [pct] [×]
+                : '60px minmax(0,1fr) auto auto auto', // [ticker] [name] [price] [pct] [×]
+              py: 0.5, borderBottom: `1px solid ${LINE}`,
               '&:hover .stk-x': { opacity: 1 },
             }}>
-              <Typography sx={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: '#e6e9f5' }}>
-                {q.symbol}
-              </Typography>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: '#e6e9f5', lineHeight: 1.2 }}>
+                  {q.symbol}
+                </Typography>
+                {compact && displayName && (
+                  <Tooltip title={displayName}>
+                    <Typography sx={{ fontFamily: MONO, fontSize: 9.5, color: '#7a82a8',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                      {displayName}
+                    </Typography>
+                  </Tooltip>
+                )}
+              </Box>
               {!compact && (
-                <Box />
+                <Tooltip title={displayName}>
+                  <Typography sx={{ fontFamily: MONO, fontSize: 11, color: '#9aa3c7',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {displayName || '—'}
+                  </Typography>
+                </Tooltip>
               )}
               <Typography sx={{ fontFamily: MONO, fontSize: 12, color: '#cdd3ee',
                 fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>

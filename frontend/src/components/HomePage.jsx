@@ -10,11 +10,14 @@ export default function HomePage({ onOpen }) {
   return (
     <Box sx={{
       position: 'relative', minHeight: '100%', display: 'flex',
-      flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
-      pt: 1, pb: 6, color: '#e6e9f5',
+      flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start',
+      pt: 1, pb: 6, color: '#e6e9f5', width: '100%',
     }}>
       <Favorites onOpen={onOpen} />
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', px: 3, width: '100%' }}>
+      {/* Grid is now edge-to-edge — no centered max-width wrapper. The grid
+          itself measures its container and lays out widgets across the
+          full available width. */}
+      <Box sx={{ width: '100%', px: 1.5, boxSizing: 'border-box' }}>
         <Widgets onOpen={onOpen} />
       </Box>
     </Box>
