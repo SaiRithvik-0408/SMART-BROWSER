@@ -19,11 +19,12 @@ A **privacy-first standalone desktop browser** with a built-in VPN (free, bundle
 7. [How website / URL masking works](#7-how-website--url-masking-works)
 8. [Ad / tracker blocker, Reddit redirect & clean user agent](#8-ad--tracker-blocker-reddit-redirect--clean-user-agent)
 9. [Customizable widget dashboard](#9-customizable-widget-dashboard)
-10. [Backend API reference](#10-backend-api-reference)
-11. [Keyboard shortcuts](#11-keyboard-shortcuts)
-12. [Honest limitations](#12-honest-limitations)
-13. [Troubleshooting](#13-troubleshooting)
-14. [Tech stack](#14-tech-stack)
+10. [In-app auto-update](#10-in-app-auto-update)
+11. [Backend API reference](#11-backend-api-reference)
+12. [Keyboard shortcuts](#12-keyboard-shortcuts)
+13. [Honest limitations](#13-honest-limitations)
+14. [Troubleshooting](#14-troubleshooting)
+15. [Tech stack](#15-tech-stack)
 
 See also [What's new](#whats-new) below and the full [`CHANGELOG.md`](./CHANGELOG.md).
 
@@ -37,7 +38,8 @@ See also [What's new](#whats-new) below and the full [`CHANGELOG.md`](./CHANGELO
 | **Chrome-identical user agent** | Strips `Electron/…` and `smart-browser/…` tokens so sites see plain Chrome. Stops the DuckDuckGo "upgrade your browser" popup. | `electron/main.js` |
 | **New-Reddit redirect** | `old.reddit.com` / `i.reddit.com` are rewritten to `www.reddit.com` on every navigation. | `electron/main.js` |
 | **Customizable widget dashboard** | Add / remove / reorder home-page widgets: Clock, Calendar, Notes, Quick Links, World Clock. Persists to `localStorage`. | `frontend/src/components/Widgets.jsx` |
-| **Packaging fix** | Windows ZIP now extracts into a `SmartBrowser/` folder instead of dumping files loose. | `.github/workflows/release.yml` |
+| **In-app auto-update** | Checks GitHub Releases on launch; shows an "Update available" banner; one click downloads the new version and (on Windows) installs + relaunches automatically. | `electron/updater.js`, `frontend/src/components/UpdateBanner.jsx` |
+| **Packaging fix** | Windows ZIP now extracts into a `SmartBrowser/` folder instead of dumping files loose, and builds are stamped with the release version. | `.github/workflows/release.yml` |
 
 ---
 
@@ -117,6 +119,7 @@ SMART BROWSER/
 ├── electron/
 │   ├── main.js                  ← Electron main: window, tabs, VPN proxy, IPC, UA cleanup, Reddit redirect
 │   ├── adblock.js               ← built-in ad/tracker blocker (webRequest + cosmetic CSS)
+│   ├── updater.js               ← GitHub-Releases self-updater (check + download + install)
 │   └── preload.js               ← contextBridge → window.smartBrowserAPI
 ├── backend-node/
 │   ├── package.json
@@ -145,6 +148,7 @@ SMART BROWSER/
             ├── BrowserView.jsx  ← placeholder + ResizeObserver (Electron) / iframe (web fallback)
             ├── HomePage.jsx     ← gradient hero, search, shortcuts, widget dashboard, feature cards
             ├── Widgets.jsx      ← customizable widget dashboard (clock/calendar/notes/links/world clock)
+            ├── UpdateBanner.jsx ← "update available" banner + one-click auto-update
             ├── VpnPanel.jsx     ← server picker, connect/disconnect, IP check
             └── ThreeBackground.jsx  ← rotating wireframe globe + particles
 ```
@@ -359,7 +363,36 @@ The whole layout (which widgets, their order, and each widget's config) is persi
 
 ---
 
-## 10) Backend API reference
+## 10) In-app auto-update
+
+SmartBrowser updates itself from **GitHub Releases** — no app store, no manual re-download.
+
+### How it works
+
+1. **Check** — `electron/updater.js` queries `https://api.github.com/repos/SaiRithvik-0408/SMART-BROWSER/releases/latest` ~8 seconds after launch, then every 6 hours. It compares the release tag (e.g. `v1.0.13`) against `app.getVersion()`.
+2. **Notify** — if a newer version exists *and* a matching asset is published for your platform, the main process emits `update:available` and the renderer shows an **Update banner** below the tab bar (`frontend/src/components/UpdateBanner.jsx`).
+3. **One-click install** — when you click **Update now**:
+   - **Windows**: the matching `SmartBrowser-<ver>-win-x64.zip` is downloaded to a temp folder, then a detached `.cmd` helper waits for the app to exit, extracts the ZIP (it unpacks into a `SmartBrowser/` folder), copies the new files over the install directory with `robocopy`, and relaunches `SmartBrowser.exe`. The banner shows a live download progress bar.
+   - **macOS / Linux**: the `.dmg` / `.AppImage` is downloaded to your Downloads folder and opened, since silent in-place replacement needs code-signing / extra infrastructure.
+
+### Version stamping (why updates don't loop)
+
+The release workflow (`.github/workflows/release.yml`) stamps the git tag version into `package.json` before packaging (both the asar build and the hand-rolled Windows build). This guarantees `app.getVersion()` matches the published release, so once you update the banner stops appearing.
+
+### Renderer API (exposed via preload)
+
+```js
+await window.smartBrowserAPI.updates.check();        // { available, current, latest, notes, assetUrl }
+await window.smartBrowserAPI.updates.apply();         // download + install (Windows: quits & relaunches)
+const off = window.smartBrowserAPI.updates.onAvailable((info) => { /* show banner */ });
+const offP = window.smartBrowserAPI.updates.onProgress((pct) => { /* 0..100 */ });
+```
+
+> Auto-update only runs in a packaged build (`app.isPackaged`). In development, "Update now" just opens the release page.
+
+---
+
+## 11) Backend API reference
 
 All endpoints are mounted on `http://localhost:8080`. CORS is open.
 
@@ -409,7 +442,7 @@ Forces an immediate IP check (direct + tunneled) and returns:
 
 ---
 
-## 11) Keyboard shortcuts
+## 12) Keyboard shortcuts
 
 | Shortcut             | Action                                                                                 |
 | -------------------- | -------------------------------------------------------------------------------------- |
@@ -423,7 +456,7 @@ Inside docked DevTools, the standard Chromium **three-dot menu → "Dock side"**
 
 ---
 
-## 12) Honest limitations
+## 13) Honest limitations
 
 A reverse-proxy + Electron browser cannot magically solve every privacy / compatibility problem. The honest list:
 
@@ -442,7 +475,7 @@ This is not an anonymity tool. Don't use it for activities where being identifie
 
 ---
 
-## 13) Troubleshooting
+## 14) Troubleshooting
 
 ### "The window is black / blank"
 
@@ -494,7 +527,7 @@ Delete the `persist:smartbrowser` partition folder:
 
 ---
 
-## 14) Tech stack
+## 15) Tech stack
 
 | Layer        | Technology                                                                                          |
 | ------------ | --------------------------------------------------------------------------------------------------- |

@@ -11,6 +11,26 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
     setEnabled: (enabled) => ipcRenderer.invoke('adblock:set', enabled),
   },
 
+  updates: {
+    check: () => ipcRenderer.invoke('update:check'),
+    apply: () => ipcRenderer.invoke('update:apply'),
+    onAvailable: (cb) => {
+      const handler = (_e, info) => cb(info);
+      ipcRenderer.on('update:available', handler);
+      return () => ipcRenderer.removeListener('update:available', handler);
+    },
+    onProgress: (cb) => {
+      const handler = (_e, pct) => cb(pct);
+      ipcRenderer.on('update:progress', handler);
+      return () => ipcRenderer.removeListener('update:progress', handler);
+    },
+    onError: (cb) => {
+      const handler = (_e, msg) => cb(msg);
+      ipcRenderer.on('update:error', handler);
+      return () => ipcRenderer.removeListener('update:error', handler);
+    },
+  },
+
   tab: {
     create:    (tabId, url) => ipcRenderer.invoke('tab:create',   { tabId, url }),
     destroy:   (tabId)      => ipcRenderer.invoke('tab:destroy',  tabId),

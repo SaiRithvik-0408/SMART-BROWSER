@@ -7,6 +7,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const adblock = require('./adblock');
+const updater = require('./updater');
 
 // Rewrite legacy/redirect hosts to their modern equivalents.
 // Reddit's old.reddit.com is the dated UI; route to the current www.reddit.com.
@@ -331,6 +332,19 @@ ipcMain.handle('app:platform', () => process.platform);
 ipcMain.handle('adblock:stats', () => adblock.stats());
 ipcMain.handle('adblock:set',   (_e, enabled) => { adblock.setEnabled(enabled); return adblock.stats(); });
 
+ipcMain.handle('update:check', async () => {
+  try { return await updater.check(); }
+  catch (e) { return { available: false, error: e.message }; }
+});
+ipcMain.handle('update:apply', async () => {
+  try {
+    return await updater.apply((pct) => broadcast('update:progress', Math.round(pct * 100)));
+  } catch (e) {
+    broadcast('update:error', e.message);
+    return { applying: false, error: e.message };
+  }
+});
+
 ipcMain.handle('tab:create',   (_e, { tabId, url }) => { createTabView(tabId, url); });
 ipcMain.handle('tab:destroy',  (_e, tabId) => destroyTabView(tabId));
 ipcMain.handle('tab:activate', (_e, tabId) => activateTabView(tabId));
@@ -378,6 +392,15 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // Check for a newer release shortly after launch, then every 6 hours.
+  // Non-blocking and best-effort: failures are swallowed.
+  const announceUpdate = (info) => {
+    if (info && info.available) broadcast('update:available', info);
+  };
+  const runCheck = () => updater.check().then(announceUpdate).catch(() => {});
+  setTimeout(runCheck, 8000);
+  setInterval(runCheck, 6 * 60 * 60 * 1000);
 });
 app.on('window-all-closed', () => {
   stopBackend();

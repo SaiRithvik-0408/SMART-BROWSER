@@ -25,6 +25,16 @@ section collects changes that have landed on `main` but are not yet tagged.
   - Add, remove, and reorder widgets; per-widget customization (notes text,
     link list, world-clock timezone).
   - Layout + config persisted to `localStorage` (`smartbrowser.widgets.v1`).
+- **In-app auto-update** (`electron/updater.js` + `UpdateBanner.jsx`).
+  - Checks GitHub Releases on launch (and every 6h) and compares against
+    `app.getVersion()`.
+  - Shows an "Update available" banner below the tab bar.
+  - One-click install: on **Windows**, downloads the `-win-x64.zip`, then a
+    detached `.cmd` helper waits for exit, extracts, copies over the install
+    dir with `robocopy`, and relaunches — with a live progress bar. On
+    **macOS/Linux**, downloads and opens the `.dmg` / `.AppImage`.
+  - New IPC surface `updates` in `electron/preload.js`
+    (`check` / `apply` / `onAvailable` / `onProgress` / `onError`).
 - New IPC surface `adblock` in `electron/preload.js`.
 
 ### Changed
@@ -46,6 +56,10 @@ section collects changes that have landed on `main` but are not yet tagged.
 - **Windows ZIP packaging**: the release ZIP now extracts into a single
   `SmartBrowser/` folder instead of dumping all files loose into the current
   directory (`.github/workflows/release.yml`).
+- **Version stamping**: the release workflow now writes the git tag version
+  (e.g. `v1.0.13` → `1.0.13`) into `package.json` before packaging, so
+  `app.getVersion()` matches the published release and the in-app updater
+  doesn't show "update available" in a loop.
 - **YouTube slowness**: addressed by the ad/tracker blocker. In Electron mode
   tabs load directly (not through `/api/proxy`), so the latency was ad/tracker
   overhead rather than proxy routing.

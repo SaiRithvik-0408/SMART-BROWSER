@@ -5,6 +5,7 @@ import TabsBar from './components/TabsBar';
 import BrowserView from './components/BrowserView';
 import VpnPanel from './components/VpnPanel';
 import ThreeBackground from './components/ThreeBackground';
+import UpdateBanner from './components/UpdateBanner';
 import { VpnApi } from './api/client';
 
 const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
@@ -121,6 +122,7 @@ export default function App() {
           onSelect={setActiveId}
           onClose={closeTab}
         />
+        <UpdateBanner />
         <Box sx={{
           flex: 1,
           display: 'flex',

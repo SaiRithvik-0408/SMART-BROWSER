@@ -107,6 +107,22 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      # Stamp the release version (from the git tag, e.g. v1.0.13 -> 1.0.13)
+      # into package.json so app.getVersion() matches the published release.
+      # Without this every build reports 1.0.0 and the in-app updater would
+      # show "update available" forever.
+      - name: Stamp version from tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER=$(node -p "require('./package.json').version")
+          fi
+          echo "APP_VERSION=$VER" >> "$GITHUB_ENV"
+          node -e "const fs=require('fs');const p=require('./package.json');p.version='$VER';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          echo "Stamped version: $VER"
+
       # Cache the electron-builder helper binaries (electron-vX-arch.zip,
       # winCodeSign-2.6.0.7z, nsis-3.0.4.1.7z, etc). These are ~200 MB
       # of one-time downloads per platform. Reusing them turns a cold
@@ -242,9 +258,10 @@ jobs:
           Invoke-Robocopy "electron"      (Join-Path $appDir "electron")
           Invoke-Robocopy "frontend\dist" (Join-Path $appDir "frontend\dist")
 
+          $appVersion = if ($env:APP_VERSION) { $env:APP_VERSION } else { '1.0.0' }
           @{
             name = "smart-browser"
-            version = "1.0.0"
+            version = $appVersion
             main = "electron/main.js"
             description = "SmartBrowser - privacy-first browser with built-in Tor VPN"
             author = "SmartBrowser"
@@ -270,7 +287,7 @@ jobs:
           $namedDir = "dist_electron\SmartBrowser"
           if (Test-Path $namedDir) { Remove-Item -Recurse -Force $namedDir }
           Rename-Item $unpacked $namedDir
-          $outZip = "dist_electron\SmartBrowser-1.0.0-win-x64.zip"
+          $outZip = "dist_electron\SmartBrowser-$appVersion-win-x64.zip"
           if (Test-Path $outZip) { Remove-Item -Force $outZip }
           Write-Host "Creating $outZip ..."
           Compress-Archive -Path $namedDir -DestinationPath $outZip -CompressionLevel Optimal
