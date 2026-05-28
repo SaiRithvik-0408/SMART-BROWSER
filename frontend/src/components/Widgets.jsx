@@ -27,9 +27,11 @@ import NewsFeed from './NewsFeed';
 
 const sbAPI = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
-// Bumped to v3 because the layout shape changed (no more `size`; we now store
-// `layout` separately). Old v2 entries are auto-migrated on first load.
-const STORAGE_KEY        = 'smartbrowser.widgets.v3';
+// v4 halves the rowHeight (40 px instead of 80) so resize feels smooth — all
+// stored `h` values from v3 are doubled on first load so widgets keep the
+// same on-screen size.
+const STORAGE_KEY        = 'smartbrowser.widgets.v4';
+const LEGACY_KEY_V3      = 'smartbrowser.widgets.v3';
 const LEGACY_KEY_V2      = 'smartbrowser.widgets.v2';
 const LAYOUT_STORAGE_KEY = 'smartbrowser.widgets.layout.v1';
 
@@ -44,15 +46,18 @@ const LINE = 'rgba(255,255,255,0.10)';
 // menu) AND for the default size/min-size when a NEW widget of that type is
 // dropped in. Sizes are in grid cells (12-col grid, ~80px row height by
 // default, so a 4x3 widget is roughly 320 × 240 px).
+// Heights doubled vs the original 80px rowHeight era because we halved the
+// row height to 40 px for smoother user resizing. A widget with h=4 here is
+// the same on-screen as h=2 was in v3.
 const CATALOG = [
-  { type: 'clock',     label: 'Clock',       icon: <AccessTimeIcon fontSize="small" />,    defaultSize: { w: 4, h: 2 }, minSize: { w: 2, h: 2 } },
-  { type: 'calendar',  label: 'Calendar',    icon: <CalendarMonthIcon fontSize="small" />, defaultSize: { w: 4, h: 4 }, minSize: { w: 3, h: 3 } },
-  { type: 'notes',     label: 'Notes',       icon: <StickyNote2Icon fontSize="small" />,   defaultSize: { w: 4, h: 3 }, minSize: { w: 2, h: 2 } },
-  { type: 'links',     label: 'Quick Links', icon: <LinkIcon fontSize="small" />,          defaultSize: { w: 4, h: 4 }, minSize: { w: 2, h: 2 } },
-  { type: 'worldclock',label: 'World Clock', icon: <PublicIcon fontSize="small" />,        defaultSize: { w: 4, h: 4 }, minSize: { w: 3, h: 2 } },
-  { type: 'stocks',    label: 'Stocks',      icon: <TrendingUpIcon fontSize="small" />,    defaultSize: { w: 6, h: 4 }, minSize: { w: 3, h: 3 } },
-  { type: 'ai',        label: 'Ask AI',      icon: <AutoAwesomeIcon fontSize="small" />,   defaultSize: { w: 6, h: 4 }, minSize: { w: 3, h: 3 } },
-  { type: 'news',      label: 'News',        icon: <NewspaperIcon fontSize="small" />,     defaultSize: { w: 12, h: 6 }, minSize: { w: 4, h: 4 } },
+  { type: 'clock',     label: 'Clock',       icon: <AccessTimeIcon fontSize="small" />,    defaultSize: { w: 4, h: 4  }, minSize: { w: 2, h: 4 } },
+  { type: 'calendar',  label: 'Calendar',    icon: <CalendarMonthIcon fontSize="small" />, defaultSize: { w: 4, h: 8  }, minSize: { w: 3, h: 6 } },
+  { type: 'notes',     label: 'Notes',       icon: <StickyNote2Icon fontSize="small" />,   defaultSize: { w: 4, h: 6  }, minSize: { w: 2, h: 4 } },
+  { type: 'links',     label: 'Quick Links', icon: <LinkIcon fontSize="small" />,          defaultSize: { w: 4, h: 8  }, minSize: { w: 2, h: 4 } },
+  { type: 'worldclock',label: 'World Clock', icon: <PublicIcon fontSize="small" />,        defaultSize: { w: 4, h: 8  }, minSize: { w: 3, h: 4 } },
+  { type: 'stocks',    label: 'Stocks',      icon: <TrendingUpIcon fontSize="small" />,    defaultSize: { w: 6, h: 8  }, minSize: { w: 3, h: 6 } },
+  { type: 'ai',        label: 'Ask AI',      icon: <AutoAwesomeIcon fontSize="small" />,   defaultSize: { w: 6, h: 8  }, minSize: { w: 3, h: 6 } },
+  { type: 'news',      label: 'News',        icon: <NewspaperIcon fontSize="small" />,     defaultSize: { w: 12, h: 12 }, minSize: { w: 4, h: 8 } },
 ];
 const catalogFor = (type) => CATALOG.find((c) => c.type === type) || CATALOG[0];
 
@@ -60,12 +65,12 @@ const catalogFor = (type) => CATALOG.find((c) => c.type === type) || CATALOG[0];
 // `layout` rect { x, y, w, h } in grid cells. The 12-column grid lets us put
 // 3 small widgets across (4 cells each) or 2 medium (6 cells each).
 const DEFAULTS = [
-  { id: 'w-clock',    type: 'clock',    config: {},                        layout: { x: 0, y: 0, w: 4, h: 2 } },
-  { id: 'w-ai',       type: 'ai',       config: { service: 'chatgpt' },    layout: { x: 4, y: 0, w: 4, h: 4 } },
-  { id: 'w-stocks',   type: 'stocks',   config: {},                        layout: { x: 8, y: 0, w: 4, h: 4 } },
-  { id: 'w-calendar', type: 'calendar', config: {},                        layout: { x: 0, y: 2, w: 4, h: 4 } },
-  { id: 'w-notes',    type: 'notes',    config: {},                        layout: { x: 4, y: 4, w: 4, h: 2 } },
-  { id: 'w-news',     type: 'news',     config: { section: 'top' },        layout: { x: 0, y: 6, w: 12, h: 6 } },
+  { id: 'w-clock',    type: 'clock',    config: {},                        layout: { x: 0, y: 0,  w: 4,  h: 4  } },
+  { id: 'w-ai',       type: 'ai',       config: { service: 'chatgpt' },    layout: { x: 4, y: 0,  w: 4,  h: 8  } },
+  { id: 'w-stocks',   type: 'stocks',   config: {},                        layout: { x: 8, y: 0,  w: 4,  h: 8  } },
+  { id: 'w-calendar', type: 'calendar', config: {},                        layout: { x: 0, y: 4,  w: 4,  h: 8  } },
+  { id: 'w-notes',    type: 'notes',    config: {},                        layout: { x: 4, y: 8,  w: 4,  h: 4  } },
+  { id: 'w-news',     type: 'news',     config: { section: 'top' },        layout: { x: 0, y: 12, w: 12, h: 12 } },
 ];
 
 // Convert the user's saved widgets to the shape react-grid-layout wants.
@@ -82,7 +87,7 @@ function toLayoutArray(widgets) {
 }
 
 function loadWidgets() {
-  // 1. New v3 store
+  // 1. New v4 store
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -90,15 +95,35 @@ function loadWidgets() {
       if (Array.isArray(parsed) && parsed.length) return parsed;
     }
   } catch {}
-  // 2. Migrate from legacy v2 (had `size: 's' | 'm' | 'l' | 'xl'` instead of layout)
+  // 2. Migrate from v3 (same shape, but rowHeight was 80 px — double all `h`
+  //    and `y` values so the layout looks identical with the new 40 px row).
+  try {
+    const raw = localStorage.getItem(LEGACY_KEY_V3);
+    if (raw) {
+      const v3 = JSON.parse(raw) || [];
+      const migrated = v3.map((w) => ({
+        ...w,
+        layout: w.layout ? {
+          x: w.layout.x,
+          y: (w.layout.y || 0) * 2,
+          w: w.layout.w,
+          h: (w.layout.h || 1) * 2,
+        } : undefined,
+      }));
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated)); } catch {}
+      return migrated;
+    }
+  } catch {}
+  // 3. Migrate from legacy v2 (had `size: 's' | 'm' | 'l' | 'xl'` instead of layout)
   try {
     const raw = localStorage.getItem(LEGACY_KEY_V2);
     if (raw) {
+      // h values doubled to match the 40 px rowHeight used since v4.
       const SIZE_TO_LAYOUT = {
-        s:  { w: 3,  h: 2 },
-        m:  { w: 4,  h: 2 },
-        l:  { w: 6,  h: 4 },
-        xl: { w: 8,  h: 4 },
+        s:  { w: 3,  h: 4 },
+        m:  { w: 4,  h: 4 },
+        l:  { w: 6,  h: 8 },
+        xl: { w: 8,  h: 8 },
       };
       const v2 = JSON.parse(raw) || [];
       let y = 0;
@@ -122,7 +147,7 @@ function loadWidgets() {
 
 // Grid config — keep in sync with the CSS overrides below.
 const GRID_COLS    = 12;
-const ROW_HEIGHT   = 80;       // px per grid row
+const ROW_HEIGHT   = 40;       // px per grid row — smaller = smoother resize
 const GRID_MARGIN  = 12;       // px between widgets (and around outer edges)
 
 export default function Widgets({ onOpen }) {
@@ -192,7 +217,7 @@ export default function Widgets({ onOpen }) {
           <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT }} />
           Dashboard
           <Typography component="span" sx={{ ml: 1.5, fontSize: 10, color: '#5b6385', letterSpacing: 1 }}>
-            — drag header to move, drag corner to resize
+            — grab the dotted handle to move, drag the red corner or side pills to resize
           </Typography>
         </Typography>
         <Button
@@ -216,19 +241,40 @@ export default function Widgets({ onOpen }) {
           The placeholder is the ghost block shown while dragging/resizing. */}
       <Box ref={containerRef} sx={{
         '& .react-grid-item.react-grid-placeholder': {
-          background: 'rgba(122,162,255,0.15) !important',
-          border: '1px dashed rgba(122,162,255,0.5)',
+          background: 'rgba(214,69,61,0.18) !important',
+          border: `1px dashed ${ACCENT}`,
           borderRadius: '4px', opacity: '1 !important',
         },
         '& .react-grid-item > .react-resizable-handle': {
-          width: 16, height: 16, opacity: 0.4,
-          backgroundImage: 'none',
-          borderRight: '2px solid rgba(255,255,255,0.5)',
-          borderBottom: '2px solid rgba(255,255,255,0.5)',
-          borderBottomRightRadius: 2,
+          backgroundImage: 'none',                    // wipe react-resizable's PNG
+          opacity: 0.45,
+          transition: 'opacity 120ms ease, background 120ms ease',
         },
         '& .react-grid-item:hover > .react-resizable-handle': { opacity: 1 },
+        // South-east corner: a chunky red triangle so the user can't miss it.
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-se': {
+          width: 22, height: 22, right: 2, bottom: 2,
+          borderRight:  `3px solid ${ACCENT}`,
+          borderBottom: `3px solid ${ACCENT}`,
+          borderBottomRightRadius: 4,
+        },
+        // East edge: vertical pill in the middle of the right border.
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-e': {
+          width: 6, height: 36, right: 0, top: '50%', transform: 'translateY(-50%)',
+          background: 'rgba(255,255,255,0.18)', borderRadius: 3,
+          cursor: 'ew-resize',
+        },
+        // South edge: horizontal pill in the middle of the bottom border.
+        '& .react-grid-item > .react-resizable-handle.react-resizable-handle-s': {
+          width: 36, height: 6, left: '50%', bottom: 0, transform: 'translateX(-50%)',
+          background: 'rgba(255,255,255,0.18)', borderRadius: 3,
+          cursor: 'ns-resize',
+        },
+        '& .react-grid-item:hover > .react-resizable-handle.react-resizable-handle-e, & .react-grid-item:hover > .react-resizable-handle.react-resizable-handle-s': {
+          background: ACCENT,
+        },
         '& .react-draggable-dragging': { cursor: 'grabbing !important', zIndex: 10 },
+        '& .react-grid-item.resizing':  { zIndex: 10, opacity: 0.95 },
       }}>
         {containerWidth > 0 && (
           <GridLayout
@@ -243,6 +289,7 @@ export default function Widgets({ onOpen }) {
             compactType="vertical"
             preventCollision={false}
             isBounded={false}
+            resizeHandles={['se', 'e', 's']}
             onLayoutChange={onLayoutChange}
           >
             {widgets.map((w) => (
@@ -776,59 +823,133 @@ function StockWidget({ config, onConfig, layout }) {
 // service can pre-fill the input (Claude + Perplexity respect ?q=).
 // =========================================================================
 
+// AI providers and what they can do inline.
+//   - apiKind: 'openai' / 'gemini' supports inline answers (CORS-friendly).
+//   - apiKind: null  → no inline support, falls back to opening the website.
+//   - prefill: query-string param the service honors for pre-filling the
+//     prompt when we *do* open the site (Chrome's q= trick).
 const AI_PROVIDERS = [
-  { id: 'chatgpt',    label: 'ChatGPT',    accent: '#10a37f', baseUrl: 'https://chatgpt.com/',           prefill: null },
-  { id: 'gemini',     label: 'Gemini',     accent: '#4285f4', baseUrl: 'https://gemini.google.com/app',  prefill: null },
-  { id: 'claude',     label: 'Claude',     accent: '#d97706', baseUrl: 'https://claude.ai/new',          prefill: 'q' },
-  { id: 'perplexity', label: 'Perplexity', accent: '#20808d', baseUrl: 'https://www.perplexity.ai/search', prefill: 'q' },
+  { id: 'chatgpt',    label: 'ChatGPT',    accent: '#10a37f', baseUrl: 'https://chatgpt.com/',           prefill: 'q', apiKind: 'openai' },
+  { id: 'gemini',     label: 'Gemini',     accent: '#4285f4', baseUrl: 'https://gemini.google.com/app',  prefill: null, apiKind: 'gemini' },
+  { id: 'claude',     label: 'Claude',     accent: '#d97706', baseUrl: 'https://claude.ai/new',          prefill: 'q', apiKind: null   },
+  { id: 'perplexity', label: 'Perplexity', accent: '#20808d', baseUrl: 'https://www.perplexity.ai/search', prefill: 'q', apiKind: null },
 ];
+
+// Run one chat completion against OpenAI's REST API. Returns the answer text
+// or throws. Uses the v1/chat/completions endpoint, which is CORS-enabled.
+async function callOpenAI({ apiKey, model, prompt }) {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: model || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a helpful, concise assistant. Answer in plain text, no markdown unless essential.' },
+        { role: 'user',   content: prompt },
+      ],
+      temperature: 0.7,
+    }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error?.message || ''; } catch {}
+    throw new Error(`OpenAI ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
+  const json = await res.json();
+  return json.choices?.[0]?.message?.content?.trim() || '(empty response)';
+}
+
+// Run one prompt against Google Gemini's generateContent endpoint.
+async function callGemini({ apiKey, model, prompt }) {
+  const m = model || 'gemini-1.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.7 },
+    }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error?.message || ''; } catch {}
+    throw new Error(`Gemini ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
+  const json = await res.json();
+  const out = json.candidates?.[0]?.content?.parts?.map((p) => p.text).filter(Boolean).join('\n');
+  return out?.trim() || '(empty response)';
+}
 
 function AiWidget({ config, onConfig, onOpen }) {
   const [prompt, setPrompt] = useState('');
+  const [settings, setSettings] = useState(null);
+  const [history, setHistory] = useState([]);          // [{role:'user'|'assistant', text, error?}]
+  const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Use the user's default AI from settings if the widget hasn't been
-  // configured yet; fall back to ChatGPT.
-  const [defaultFromSettings, setDefaultFromSettings] = useState(null);
+  // Pull settings once so we know about keys + default AI choice.
   useEffect(() => {
     (async () => {
       if (!sbAPI?.settings) return;
-      try {
-        const s = await sbAPI.settings.get();
-        if (s && s.defaultAI) setDefaultFromSettings(s.defaultAI);
-      } catch {}
+      try { setSettings(await sbAPI.settings.get()); } catch {}
     })();
   }, []);
 
-  const serviceId = config.service || defaultFromSettings || 'chatgpt';
+  const serviceId = config.service || settings?.defaultAI || 'chatgpt';
   const service = AI_PROVIDERS.find((p) => p.id === serviceId) || AI_PROVIDERS[0];
+  const apiKey  = service.apiKind ? settings?.aiKeys?.[service.apiKind === 'openai' ? 'openai' : 'gemini'] : '';
+  const model   = service.apiKind ? settings?.aiModels?.[service.apiKind === 'openai' ? 'openai' : 'gemini'] : '';
+  const canInline = Boolean(service.apiKind && apiKey);
 
-  const ask = async () => {
-    const text = prompt.trim();
-    if (!text) {
-      onOpen(service.baseUrl);
-      return;
-    }
-    // Always copy to clipboard so the user can paste immediately on landing.
-    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }
-    catch {}
-    // Append ?q= where the service is known to honor it.
+  const openOnSite = async (text) => {
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
     const url = service.prefill
       ? `${service.baseUrl}?${service.prefill}=${encodeURIComponent(text)}`
       : service.baseUrl;
     onOpen(url);
-    setPrompt('');
   };
 
+  const ask = async () => {
+    const text = prompt.trim();
+    if (!text) {
+      if (history.length === 0) onOpen(service.baseUrl);
+      return;
+    }
+    setPrompt('');
+
+    // Inline mode: call the API and append both turns to the chat history.
+    if (canInline) {
+      setHistory((h) => [...h, { role: 'user', text }]);
+      setBusy(true);
+      try {
+        const fn = service.apiKind === 'openai' ? callOpenAI : callGemini;
+        const answer = await fn({ apiKey, model, prompt: text });
+        setHistory((h) => [...h, { role: 'assistant', text: answer }]);
+      } catch (e) {
+        setHistory((h) => [...h, { role: 'assistant', text: '', error: e?.message || String(e) }]);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    // No-key fallback: open the website with the prompt prefilled where
+    // possible, and copy it to the clipboard as a safety net.
+    openOnSite(text);
+  };
+
+  const openSettings = () => onOpen('smartbrowser://settings');
+  const clearChat = () => setHistory([]);
+
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0.75, minHeight: 0 }}>
       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
         {AI_PROVIDERS.map((p) => {
           const active = p.id === serviceId;
           return (
             <Box
               key={p.id}
-              onClick={() => onConfig({ service: p.id })}
+              onClick={() => { onConfig({ service: p.id }); setHistory([]); }}
               sx={{
                 px: 1, py: 0.4, borderRadius: 1, cursor: 'pointer',
                 fontFamily: MONO, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase',
@@ -843,36 +964,109 @@ function AiWidget({ config, onConfig, onOpen }) {
             </Box>
           );
         })}
+        {history.length > 0 && (
+          <Box onClick={clearChat}
+            sx={{ ml: 'auto', px: 1, py: 0.4, fontFamily: MONO, fontSize: 10, letterSpacing: 1,
+              cursor: 'pointer', color: '#9aa3c7', '&:hover': { color: '#e6e9f5' } }}
+          >
+            CLEAR
+          </Box>
+        )}
       </Box>
+
+      {/* Chat transcript — shown when we have inline messages. */}
+      {history.length > 0 && (
+        <Box sx={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 0.75,
+          border: `1px solid ${LINE}`, borderRadius: '4px', p: 1, minHeight: 0 }}>
+          {history.map((m, i) => (
+            <Box key={i} sx={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              <Typography sx={{ fontFamily: MONO, fontSize: 9, letterSpacing: 1, color: m.role === 'user' ? '#9aa3c7' : service.accent }}>
+                {m.role === 'user' ? 'YOU' : service.label.toUpperCase()}
+              </Typography>
+              <Box sx={{
+                px: 1.25, py: 0.75, mt: 0.25, borderRadius: 1, maxWidth: '92%',
+                background: m.role === 'user' ? 'rgba(255,255,255,0.04)' : `${service.accent}15`,
+                border: `1px solid ${m.role === 'user' ? LINE : `${service.accent}40`}`,
+              }}>
+                {m.error ? (
+                  <Typography sx={{ fontSize: 12, color: '#ef4444' }}>Error: {m.error}</Typography>
+                ) : (
+                  <Typography sx={{ fontSize: 12.5, color: '#e6e9f5', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                    {m.text}
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+          ))}
+          {busy && (
+            <Typography sx={{ fontFamily: MONO, fontSize: 10, color: '#9aa3c7', alignSelf: 'flex-start' }}>
+              {service.label.toUpperCase()} IS THINKING…
+            </Typography>
+          )}
+        </Box>
+      )}
+
+      {/* Empty-state hints. We surface the key-missing case prominently because
+          it's the #1 reason users think "the widget doesn't work". */}
+      {history.length === 0 && service.apiKind && !apiKey && (
+        <Box sx={{ p: 1, border: `1px dashed ${service.accent}66`, borderRadius: 1, background: `${service.accent}10` }}>
+          <Typography sx={{ fontSize: 11.5, color: '#e6e9f5', mb: 0.5 }}>
+            Add your {service.apiKind === 'openai' ? 'OpenAI' : 'Google Gemini'} API key to get inline answers in this widget.
+          </Typography>
+          <Box onClick={openSettings}
+            sx={{ display: 'inline-block', mt: 0.25, fontFamily: MONO, fontSize: 10, letterSpacing: 1,
+              color: service.accent, cursor: 'pointer', textTransform: 'uppercase',
+              '&:hover': { textDecoration: 'underline' } }}
+          >
+            → OPEN SETTINGS
+          </Box>
+          <Typography sx={{ fontSize: 10, color: '#9aa3c7', mt: 0.5 }}>
+            Without a key, Send will just open {service.label} with your prompt pre-filled where supported.
+          </Typography>
+        </Box>
+      )}
+      {history.length === 0 && !service.apiKind && (
+        <Typography sx={{ fontSize: 10.5, color: '#9aa3c7' }}>
+          {service.label} doesn't expose a browser-callable API. Send will open
+          {' '}{service.label} with your prompt pre-filled where supported.
+        </Typography>
+      )}
+
       <InputBase
         multiline
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ask(); }}
-        placeholder={`ASK ${service.label.toUpperCase()}…  (Ctrl+Enter to send)`}
+        placeholder={canInline
+          ? `ASK ${service.label.toUpperCase()} — ANSWERS APPEAR HERE  (Ctrl+Enter)`
+          : `ASK ${service.label.toUpperCase()}…  (Ctrl+Enter to open in tab)`}
         sx={{
-          flex: 1, alignItems: 'flex-start', p: 0.5,
+          alignItems: 'flex-start', p: 0.75,
           color: '#e6e9f5', fontFamily: MONO, fontSize: 12, lineHeight: 1.4,
           border: `1px solid ${LINE}`, borderRadius: '4px',
-          '& textarea': { height: '100% !important' },
+          minHeight: 60, maxHeight: 140,
+          '& textarea': { resize: 'none' },
           '& textarea::placeholder': { letterSpacing: 1, opacity: 0.5 },
         }}
       />
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Typography sx={{ flex: 1, fontFamily: MONO, fontSize: 9, color: '#5b6385', letterSpacing: 1 }}>
-          {copied ? 'COPIED → PASTE IN CHAT' : `OPENS IN NEW TAB · ${service.prefill ? 'AUTO-FILL' : 'CLIPBOARD'}`}
+          {copied ? 'COPIED → PASTE IN CHAT' :
+           canInline ? `INLINE · ${model || ''}`.trim() :
+           `OPENS IN NEW TAB · ${service.prefill ? 'AUTO-FILL' : 'CLIPBOARD'}`}
         </Typography>
         <Box
-          onClick={ask}
+          onClick={busy ? undefined : ask}
           sx={{
             display: 'inline-flex', alignItems: 'center', gap: 0.5,
-            px: 1.25, py: 0.5, borderRadius: 1, cursor: 'pointer',
+            px: 1.25, py: 0.5, borderRadius: 1,
+            cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.55 : 1,
             fontFamily: MONO, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase',
             color: '#fff', background: service.accent,
-            '&:hover': { filter: 'brightness(1.1)' },
+            '&:hover': busy ? {} : { filter: 'brightness(1.1)' },
           }}
         >
-          <SendIcon sx={{ fontSize: 13 }} /> Ask
+          <SendIcon sx={{ fontSize: 13 }} /> {busy ? '…' : (canInline ? 'Ask' : 'Open')}
         </Box>
       </Box>
     </Box>

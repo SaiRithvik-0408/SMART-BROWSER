@@ -101,7 +101,16 @@ export default function App() {
     updateActive(t => {
       if (opts.silent) {
         const last = t.history[t.cursor];
-        if (last === url) return { ...t, title: url };
+        if (last === url) return { ...t, title: url, _displayUrl: url };
+        // If this URL matches the immediately previous entry in history,
+        // treat it as a native back navigation (cursor--), not a brand-new
+        // page. Keeps React's view of history aligned with the native view.
+        if (t.cursor > 0 && t.history[t.cursor - 1] === url) {
+          return { ...t, cursor: t.cursor - 1, title: url, _displayUrl: url };
+        }
+        if (t.cursor < t.history.length - 1 && t.history[t.cursor + 1] === url) {
+          return { ...t, cursor: t.cursor + 1, title: url, _displayUrl: url };
+        }
         const trimmed = t.history.slice(0, t.cursor + 1);
         const next = [...trimmed, url];
         return { ...t, history: next, cursor: next.length - 1, title: url, _displayUrl: url };
@@ -112,18 +121,52 @@ export default function App() {
     });
   };
 
-  // Internal pages (home, smartbrowser://*) don't have a native WebContentsView,
-  // so back/forward/reload have to walk our in-React per-tab history instead
-  // of asking the main process.
+  // Hybrid navigation history.
+  //
+  // Each tab keeps its own `history` array of every URL it has ever shown,
+  // including transitions between internal pages (home, smartbrowser://...)
+  // and external native pages. The native WebContentsView ALSO keeps its own
+  // per-tab history, but only for the *current external segment* — it's
+  // empty/short when the user just arrived at a site from the new-tab page.
+  //
+  // So Back/Forward must ALWAYS consult the React history first; only if
+  // we're already at the start/end of React history do we fall through to
+  // the native history (which still helps for SPAs that push their own
+  // routes via the History API on a single load).
   const isInternalUrl = (u) => !u || u === 'home' || (typeof u === 'string' && u.startsWith('smartbrowser://'));
 
-  const back     = () => { if (inElectron && active && !isInternalUrl(active.url)) api.tab.back(active.id);
-                           else updateActive(t => t.cursor > 0 ? { ...t, cursor: t.cursor - 1, url: t.history[t.cursor - 1] } : t); };
-  const forward  = () => { if (inElectron && active && !isInternalUrl(active.url)) api.tab.forward(active.id);
-                           else updateActive(t => t.cursor < t.history.length - 1 ? { ...t, cursor: t.cursor + 1, url: t.history[t.cursor + 1] } : t); };
-  const reload   = () => { if (inElectron && active && !isInternalUrl(active.url)) api.tab.reload(active.id);
-                           else updateActive(t => ({ ...t, url: t.url + '' })); };
-  const home     = () => navigate('home');
+  const back = () => {
+    if (!active) return;
+    if (active.cursor > 0) {
+      const newIdx = active.cursor - 1;
+      const newUrl = active.history[newIdx];
+      updateActive(t => ({ ...t, cursor: newIdx, url: newUrl, _displayUrl: undefined }));
+      // Force a native nav directly even when the URL string didn't change —
+      // silent navigation events may have advanced the native view past our
+      // tab.url, so the React effect alone won't always re-load the target.
+      if (inElectron && !isInternalUrl(newUrl)) api.tab.navigate(active.id, newUrl);
+      return;
+    }
+    // At the start of React history — last resort: ask native to go back in
+    // case the current external page has its own SPA-internal history.
+    if (inElectron && !isInternalUrl(active.url)) api.tab.back(active.id);
+  };
+  const forward = () => {
+    if (!active) return;
+    if (active.cursor < active.history.length - 1) {
+      const newIdx = active.cursor + 1;
+      const newUrl = active.history[newIdx];
+      updateActive(t => ({ ...t, cursor: newIdx, url: newUrl, _displayUrl: undefined }));
+      if (inElectron && !isInternalUrl(newUrl)) api.tab.navigate(active.id, newUrl);
+      return;
+    }
+    if (inElectron && !isInternalUrl(active.url)) api.tab.forward(active.id);
+  };
+  const reload = () => {
+    if (inElectron && active && !isInternalUrl(active.url)) api.tab.reload(active.id);
+    else updateActive(t => ({ ...t, url: t.url + '' }));
+  };
+  const home = () => navigate('home');
 
   const addTab = () => {
     const t = newTab('home');

@@ -8,6 +8,60 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.26] - 2026-05-29
+
+### Fixed
+
+- **Back / Forward buttons in the URL bar now actually work** when the
+  previous entry was the home page or another `smartbrowser://` page.
+  Previously they delegated to Electron's native `webContents` history,
+  which is empty when you came from an internal React page — so the buttons
+  silently did nothing. The chrome now walks the React-tracked `tab.history`
+  first and forces a native re-navigation directly, falling back to native
+  back/forward only when React history is exhausted (handy for in-page SPA
+  routes). Silent in-page navigation also now correctly moves the cursor
+  back/forward instead of appending duplicates when the URL matches an
+  adjacent history entry.
+
+### Added — Inline AI answers
+
+- **AI widget now actually answers in-place** when you supply an API key.
+  OpenAI (`gpt-4o-mini` / `gpt-4o` / `gpt-4-turbo` / `gpt-3.5-turbo`) and
+  Google Gemini (`gemini-1.5-flash` / `gemini-1.5-pro` /
+  `gemini-2.0-flash-exp`) are called directly from the renderer — both
+  expose CORS-friendly endpoints. Answers render as a scrolling chat
+  transcript inside the widget with a CLEAR button.
+- **Settings → AI** has new fields for the OpenAI, Gemini, and Anthropic API
+  keys (with show/hide toggles), plus model dropdowns. Keys are stored
+  locally in `userData/sb-store/settings.json`. Direct links to each
+  provider's key-issuing console are included.
+- Without a key, the widget still falls back to opening the provider's
+  website with the prompt pre-filled in the URL where possible
+  (`?q=` works on ChatGPT, Claude, Perplexity) and copies the prompt to
+  the clipboard either way.
+- Anthropic Claude is listed in Settings but flagged as fallback-only
+  because Anthropic's API blocks browser CORS today.
+
+### Changed — Widgets resize is smooth
+
+- **Halved the grid row height** (40 px instead of 80 px) so widget heights
+  can be adjusted in 40 px increments instead of 80 px chunks — much closer
+  to "free-form" sizing. All saved layouts are auto-migrated from v3 by
+  doubling `y` and `h` so widgets keep their on-screen size.
+- **Multi-side resize handles**: every widget now exposes a chunky red
+  bottom-right corner *plus* pill-shaped pull handles on the east and
+  south edges. On hover the side pills turn red so they're obvious.
+- Default widget dimensions in the catalog were doubled (h-only) to match
+  the new row height; CATALOG / DEFAULTS in `Widgets.jsx` updated.
+
+### Files
+
+- Changed: `electron/settings.js` (new `aiKeys` + `aiModels`, deep migration),
+  `frontend/src/App.jsx` (back/forward + silent-nav cursor reconciliation),
+  `frontend/src/components/Widgets.jsx` (rowHeight, handles, AiWidget
+  inline answers, v3→v4 layout migration),
+  `frontend/src/components/SettingsPage.jsx` (API key UI).
+
 ## [v1.0.25] - 2026-05-29
 
 ### Added — Notes everywhere

@@ -2,9 +2,12 @@ import React, { useEffect, useState } from 'react';
 import {
   Box, Typography, Stack, Switch, FormControlLabel, Divider,
   Select, MenuItem, FormControl, InputLabel, Button, Alert, Chip,
+  TextField, IconButton, InputAdornment, Link,
 } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 
 const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
@@ -22,12 +25,44 @@ const AI_OPTIONS = [
   { value: 'claude',  label: 'Claude' },
 ];
 
+function AiKeyField({ label, placeholder, value, visible, onToggle, onChange, helpLink }) {
+  return (
+    <Box>
+      <TextField
+        size="small" fullWidth
+        label={label}
+        placeholder={placeholder}
+        type={visible ? 'text' : 'password'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        InputProps={{
+          endAdornment: (
+            <InputAdornment position="end">
+              <IconButton size="small" onClick={onToggle} edge="end">
+                {visible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+              </IconButton>
+            </InputAdornment>
+          ),
+        }}
+      />
+      {helpLink && (
+        <Typography sx={{ fontSize: 11, color: '#9aa3c7', mt: 0.5 }}>
+          <Link href={helpLink.href} target="_blank" rel="noopener" sx={{ color: '#7aa2ff' }}>
+            {helpLink.label} ↗
+          </Link>
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
 export default function SettingsPage() {
   const [s, setS] = useState(null);
   const [adblockStats, setAdblockStats] = useState(null);
   const [version, setVersion] = useState('');
   const [updateInfo, setUpdateInfo] = useState(null);
   const [checking, setChecking] = useState(false);
+  const [showKey, setShowKey] = useState({ openai: false, gemini: false, anthropic: false });
 
   useEffect(() => {
     (async () => {
@@ -127,7 +162,7 @@ export default function SettingsPage() {
       </Section>
 
       <Section title="AI">
-        <FormControl fullWidth size="small">
+        <FormControl fullWidth size="small" sx={{ mb: 2 }}>
           <InputLabel id="default-ai-label">Default AI assistant</InputLabel>
           <Select
             labelId="default-ai-label" label="Default AI assistant"
@@ -137,10 +172,79 @@ export default function SettingsPage() {
             {AI_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
           </Select>
         </FormControl>
-        <Typography sx={{ mt: 1, fontSize: 12, color: '#9aa3c7' }}>
-          Used by the AI widget and the Ask AI shortcut. You stay signed in via the
-          AI service's own website — SmartBrowser doesn't store API keys.
+
+        <Typography sx={{ fontSize: 12, color: '#9aa3c7', mb: 1.5 }}>
+          Add API keys to make the AI widget answer questions inline. Without a
+          key, the widget will just open the provider's website with your
+          prompt pre-filled where possible. Keys are stored locally in
+          <code> userData/sb-store/settings.json</code>.
         </Typography>
+
+        <Stack spacing={1.5}>
+          <AiKeyField
+            label="OpenAI API key"
+            placeholder="sk-..."
+            value={s.aiKeys?.openai || ''}
+            visible={showKey.openai}
+            onToggle={() => setShowKey((k) => ({ ...k, openai: !k.openai }))}
+            onChange={(v) => update({ aiKeys: { ...(s.aiKeys || {}), openai: v } })}
+            helpLink={{ href: 'https://platform.openai.com/api-keys', label: 'Get an OpenAI key' }}
+          />
+          <FormControl size="small" sx={{ maxWidth: 280 }}>
+            <InputLabel>OpenAI model</InputLabel>
+            <Select
+              label="OpenAI model"
+              value={s.aiModels?.openai || 'gpt-4o-mini'}
+              onChange={(e) => update({ aiModels: { ...(s.aiModels || {}), openai: e.target.value } })}
+            >
+              <MenuItem value="gpt-4o-mini">gpt-4o-mini (fast, cheap)</MenuItem>
+              <MenuItem value="gpt-4o">gpt-4o (smart)</MenuItem>
+              <MenuItem value="gpt-4-turbo">gpt-4-turbo</MenuItem>
+              <MenuItem value="gpt-3.5-turbo">gpt-3.5-turbo (cheapest)</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Divider sx={{ my: 0.5 }} />
+
+          <AiKeyField
+            label="Google Gemini API key"
+            placeholder="AIza..."
+            value={s.aiKeys?.gemini || ''}
+            visible={showKey.gemini}
+            onToggle={() => setShowKey((k) => ({ ...k, gemini: !k.gemini }))}
+            onChange={(v) => update({ aiKeys: { ...(s.aiKeys || {}), gemini: v } })}
+            helpLink={{ href: 'https://aistudio.google.com/app/apikey', label: 'Get a Gemini key (free tier)' }}
+          />
+          <FormControl size="small" sx={{ maxWidth: 280 }}>
+            <InputLabel>Gemini model</InputLabel>
+            <Select
+              label="Gemini model"
+              value={s.aiModels?.gemini || 'gemini-1.5-flash'}
+              onChange={(e) => update({ aiModels: { ...(s.aiModels || {}), gemini: e.target.value } })}
+            >
+              <MenuItem value="gemini-1.5-flash">gemini-1.5-flash (fast)</MenuItem>
+              <MenuItem value="gemini-1.5-pro">gemini-1.5-pro</MenuItem>
+              <MenuItem value="gemini-2.0-flash-exp">gemini-2.0-flash-exp</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Divider sx={{ my: 0.5 }} />
+
+          <AiKeyField
+            label="Anthropic Claude API key"
+            placeholder="sk-ant-..."
+            value={s.aiKeys?.anthropic || ''}
+            visible={showKey.anthropic}
+            onToggle={() => setShowKey((k) => ({ ...k, anthropic: !k.anthropic }))}
+            onChange={(v) => update({ aiKeys: { ...(s.aiKeys || {}), anthropic: v } })}
+            helpLink={{ href: 'https://console.anthropic.com/settings/keys', label: 'Get an Anthropic key' }}
+          />
+          <Alert severity="info" sx={{ fontSize: 12 }}>
+            Anthropic doesn't allow direct browser API calls today, so Claude
+            will fall back to opening claude.ai. Use OpenAI or Gemini for
+            inline answers in the widget.
+          </Alert>
+        </Stack>
       </Section>
 
       <Section title="About">
