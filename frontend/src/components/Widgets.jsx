@@ -14,8 +14,12 @@ import StickyNote2Icon from '@mui/icons-material/StickyNote2';
 import LinkIcon from '@mui/icons-material/Link';
 import PublicIcon from '@mui/icons-material/Public';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import SendIcon from '@mui/icons-material/Send';
 import { motion } from 'framer-motion';
 import { proxyUrlFor } from '../api/client';
+
+const sbAPI = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
 const STORAGE_KEY = 'smartbrowser.widgets.v2';
 
@@ -33,6 +37,7 @@ const CATALOG = [
   { type: 'links',     label: 'Quick Links', icon: <LinkIcon fontSize="small" /> },
   { type: 'worldclock',label: 'World Clock', icon: <PublicIcon fontSize="small" /> },
   { type: 'stocks',    label: 'Stocks',      icon: <TrendingUpIcon fontSize="small" /> },
+  { type: 'ai',        label: 'Ask AI',      icon: <AutoAwesomeIcon fontSize="small" /> },
 ];
 
 // Resize presets — cycled by the resize button. col/row are grid spans.
@@ -47,6 +52,7 @@ const nextSize = (s) => SIZES[(SIZES.indexOf(s) + 1) % SIZES.length];
 
 const DEFAULTS = [
   { id: 'w-clock',    type: 'clock',    size: 'm', config: {} },
+  { id: 'w-ai',       type: 'ai',       size: 'l', config: { service: 'chatgpt' } },
   { id: 'w-stocks',   type: 'stocks',   size: 'l', config: {} },
   { id: 'w-calendar', type: 'calendar', size: 'm', config: {} },
   { id: 'w-notes',    type: 'notes',    size: 'm', config: { text: '' } },
@@ -190,6 +196,7 @@ function WidgetFrame({ widget, isFirst, isLast, onRemove, onResize, onMove, onCo
         {widget.type === 'links' && <LinksWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
         {widget.type === 'worldclock' && <WorldClockWidget config={widget.config} onConfig={onConfig} />}
         {widget.type === 'stocks' && <StockWidget config={widget.config} onConfig={onConfig} size={widget.size} />}
+        {widget.type === 'ai' && <AiWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
       </Box>
     </Box>
   );
@@ -479,6 +486,121 @@ function StockWidget({ config, onConfig, size }) {
             RESET
           </Typography>
         </Tooltip>
+      </Box>
+    </Box>
+  );
+}
+
+// =========================================================================
+// AI widget — pick a service (ChatGPT / Gemini / Claude / Perplexity), type
+// a prompt, hit "Ask". The widget copies the prompt to the clipboard AND
+// opens the service's web UI in a new tab. The user stays signed in via
+// that service's own cookies in our persistent session, so there's no API
+// key plumbing — exactly how someone using the service in a regular tab
+// would work, but with the prompt already on their clipboard ready to paste.
+//
+// Where supported, we ALSO append the prompt to the service URL so the
+// service can pre-fill the input (Claude + Perplexity respect ?q=).
+// =========================================================================
+
+const AI_PROVIDERS = [
+  { id: 'chatgpt',    label: 'ChatGPT',    accent: '#10a37f', baseUrl: 'https://chatgpt.com/',           prefill: null },
+  { id: 'gemini',     label: 'Gemini',     accent: '#4285f4', baseUrl: 'https://gemini.google.com/app',  prefill: null },
+  { id: 'claude',     label: 'Claude',     accent: '#d97706', baseUrl: 'https://claude.ai/new',          prefill: 'q' },
+  { id: 'perplexity', label: 'Perplexity', accent: '#20808d', baseUrl: 'https://www.perplexity.ai/search', prefill: 'q' },
+];
+
+function AiWidget({ config, onConfig, onOpen }) {
+  const [prompt, setPrompt] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  // Use the user's default AI from settings if the widget hasn't been
+  // configured yet; fall back to ChatGPT.
+  const [defaultFromSettings, setDefaultFromSettings] = useState(null);
+  useEffect(() => {
+    (async () => {
+      if (!sbAPI?.settings) return;
+      try {
+        const s = await sbAPI.settings.get();
+        if (s && s.defaultAI) setDefaultFromSettings(s.defaultAI);
+      } catch {}
+    })();
+  }, []);
+
+  const serviceId = config.service || defaultFromSettings || 'chatgpt';
+  const service = AI_PROVIDERS.find((p) => p.id === serviceId) || AI_PROVIDERS[0];
+
+  const ask = async () => {
+    const text = prompt.trim();
+    if (!text) {
+      onOpen(service.baseUrl);
+      return;
+    }
+    // Always copy to clipboard so the user can paste immediately on landing.
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch {}
+    // Append ?q= where the service is known to honor it.
+    const url = service.prefill
+      ? `${service.baseUrl}?${service.prefill}=${encodeURIComponent(text)}`
+      : service.baseUrl;
+    onOpen(url);
+    setPrompt('');
+  };
+
+  return (
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+        {AI_PROVIDERS.map((p) => {
+          const active = p.id === serviceId;
+          return (
+            <Box
+              key={p.id}
+              onClick={() => onConfig({ service: p.id })}
+              sx={{
+                px: 1, py: 0.4, borderRadius: 1, cursor: 'pointer',
+                fontFamily: MONO, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase',
+                color: active ? '#fff' : '#9aa3c7',
+                background: active ? `${p.accent}33` : 'transparent',
+                border: '1px solid', borderColor: active ? `${p.accent}88` : LINE,
+                transition: 'all 140ms ease',
+                '&:hover': { borderColor: `${p.accent}88`, color: '#e6e9f5' },
+              }}
+            >
+              {p.label}
+            </Box>
+          );
+        })}
+      </Box>
+      <InputBase
+        multiline
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ask(); }}
+        placeholder={`ASK ${service.label.toUpperCase()}…  (Ctrl+Enter to send)`}
+        sx={{
+          flex: 1, alignItems: 'flex-start', p: 0.5,
+          color: '#e6e9f5', fontFamily: MONO, fontSize: 12, lineHeight: 1.4,
+          border: `1px solid ${LINE}`, borderRadius: '4px',
+          '& textarea': { height: '100% !important' },
+          '& textarea::placeholder': { letterSpacing: 1, opacity: 0.5 },
+        }}
+      />
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography sx={{ flex: 1, fontFamily: MONO, fontSize: 9, color: '#5b6385', letterSpacing: 1 }}>
+          {copied ? 'COPIED → PASTE IN CHAT' : `OPENS IN NEW TAB · ${service.prefill ? 'AUTO-FILL' : 'CLIPBOARD'}`}
+        </Typography>
+        <Box
+          onClick={ask}
+          sx={{
+            display: 'inline-flex', alignItems: 'center', gap: 0.5,
+            px: 1.25, py: 0.5, borderRadius: 1, cursor: 'pointer',
+            fontFamily: MONO, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase',
+            color: '#fff', background: service.accent,
+            '&:hover': { filter: 'brightness(1.1)' },
+          }}
+        >
+          <SendIcon sx={{ fontSize: 13 }} /> Ask
+        </Box>
       </Box>
     </Box>
   );

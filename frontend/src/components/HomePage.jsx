@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import Widgets from './Widgets';
 import NewsFeed from './NewsFeed';
 import Favorites from './Favorites';
+import AiShortcuts from './AiShortcuts';
 
 export default function HomePage({ onOpen }) {
   const [q, setQ] = useState('');
@@ -65,6 +66,8 @@ export default function HomePage({ onOpen }) {
             />
             <IconButton type="submit" color="primary" size="small"><BoltIcon /></IconButton>
           </Paper>
+
+          <AiShortcuts onOpen={onOpen} />
         </Box>
 
         <Widgets onOpen={onOpen} />

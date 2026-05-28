@@ -8,6 +8,11 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const adblock = require('./adblock');
 const updater = require('./updater');
+const history = require('./history');
+const downloads = require('./downloads');
+const passwords = require('./passwords');
+const settings = require('./settings');
+const storeMod = require('./store');
 
 // Rewrite legacy/redirect hosts to their modern equivalents.
 // Reddit's old.reddit.com is the dated UI; route to the current www.reddit.com.
@@ -233,13 +238,23 @@ function createTabView(tabId, initialUrl) {
   });
   wc.on('did-start-loading', () => broadcast('tab:event', { tabId, type: 'loading', loading: true }));
   wc.on('did-stop-loading',  () => broadcast('tab:event', { tabId, type: 'loading', loading: false }));
-  wc.on('did-navigate',         (_e, url) => broadcast('tab:event', { tabId, type: 'nav', url }));
-  wc.on('did-navigate-in-page', (_e, url) => broadcast('tab:event', { tabId, type: 'nav', url }));
+  wc.on('did-navigate',         (_e, url) => {
+    broadcast('tab:event', { tabId, type: 'nav', url });
+    history.record(url, { tabId });
+  });
+  wc.on('did-navigate-in-page', (_e, url) => {
+    broadcast('tab:event', { tabId, type: 'nav', url });
+    history.record(url, { tabId });
+  });
   wc.on('page-title-updated',   (_e, title) => {
     broadcast('tab:event', { tabId, type: 'title', title });
     if (tabId === activeTabId) syncWindowTitle(title);
+    try { history.patchTitle(wc.getURL(), title); } catch {}
   });
-  wc.on('page-favicon-updated', (_e, favicons) => broadcast('tab:event', { tabId, type: 'favicon', favicon: favicons[0] }));
+  wc.on('page-favicon-updated', (_e, favicons) => {
+    broadcast('tab:event', { tabId, type: 'favicon', favicon: favicons[0] });
+    try { history.patchFavicon(wc.getURL(), favicons[0]); } catch {}
+  });
   wc.setWindowOpenHandler(({ url }) => {
     broadcast('tab:open-new', { url });   // renderer creates a new tab
     return { action: 'deny' };
@@ -410,6 +425,39 @@ ipcMain.handle('tab:open-devtools', (_e, tabId) => {
   target.isDevToolsOpened() ? target.closeDevTools() : target.openDevTools({ mode: 'right' });
 });
 
+// ----- History -----------------------------------------------------------
+ipcMain.handle('history:list',   (_e, opts)  => history.list(opts || {}));
+ipcMain.handle('history:remove', (_e, ts)    => history.remove(ts));
+ipcMain.handle('history:clear',  (_e, opts)  => history.clear(opts || {}));
+
+// ----- Downloads ---------------------------------------------------------
+ipcMain.handle('downloads:list',   ()         => downloads.list());
+ipcMain.handle('downloads:pause',  (_e, id)   => downloads.pause(id));
+ipcMain.handle('downloads:resume', (_e, id)   => downloads.resume(id));
+ipcMain.handle('downloads:cancel', (_e, id)   => downloads.cancel(id));
+ipcMain.handle('downloads:open',   (_e, id)   => downloads.openFile(id));
+ipcMain.handle('downloads:show',   (_e, id)   => downloads.showFile(id));
+ipcMain.handle('downloads:remove', (_e, id)   => downloads.removeRecord(id));
+ipcMain.handle('downloads:clear',  ()         => downloads.clearAll());
+
+// ----- Passwords ---------------------------------------------------------
+ipcMain.handle('passwords:available', ()       => passwords.isAvailable());
+ipcMain.handle('passwords:list',      ()       => passwords.list());
+ipcMain.handle('passwords:reveal',    (_e, id) => passwords.reveal(id));
+ipcMain.handle('passwords:upsert',    (_e, e)  => passwords.upsert(e || {}));
+ipcMain.handle('passwords:remove',    (_e, id) => passwords.remove(id));
+
+// ----- Settings ----------------------------------------------------------
+ipcMain.handle('settings:get',  () => settings.get());
+ipcMain.handle('settings:set',  (_e, patch) => {
+  const next = settings.set(patch || {});
+  // Apply any side-effects.
+  if ('adblockEnabled' in patch) adblock.setEnabled(!!patch.adblockEnabled);
+  if ('historyEnabled' in patch) history.setEnabled(!!patch.historyEnabled);
+  return next;
+});
+ipcMain.handle('settings:search-url', (_e, q) => settings.searchUrlFor(String(q || '')));
+
 // ====================  Lifecycle  ===========================================
 app.whenReady().then(() => {
   // Strip Electron-specific tokens so sites see a plain Chrome user agent.
@@ -420,8 +468,15 @@ app.whenReady().then(() => {
     .replace(/\s+smart-browser\/\S+/, '');
   session.defaultSession.setUserAgent(cleanUA);
 
-  // Install the built-in ad/tracker blocker on the shared session.
+  // Install the built-in ad/tracker blocker on the shared session, applying
+  // the user's persisted preference.
+  const userSettings = settings.get();
   adblock.install();
+  adblock.setEnabled(userSettings.adblockEnabled !== false);
+  history.setEnabled(userSettings.historyEnabled !== false);
+
+  // Install downloads tracking on the shared session.
+  downloads.install(session.defaultSession, broadcast);
 
   startTor();
   startBackend();
@@ -444,4 +499,4 @@ app.on('window-all-closed', () => {
   stopTor();
   if (process.platform !== 'darwin') app.quit();
 });
-app.on('before-quit', () => { stopBackend(); stopTor(); });
+app.on('before-quit', () => { stopBackend(); stopTor(); storeMod.flushAll(); });

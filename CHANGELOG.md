@@ -36,6 +36,40 @@ section collects changes that have landed on `main` but are not yet tagged.
   the viewport instead of at the top, giving the favorites header and the
   widget dashboard cleaner separation.
 
+### Added
+
+- **History page** (`smartbrowser://history`): every top-level navigation is
+  recorded with URL, title, favicon and timestamp (capped at 5000 entries).
+  Searchable, day-grouped, with per-entry remove + bulk "Clear last hour /
+  24 h / 7 days / all" controls. Persisted to
+  `userData/sb-store/history.json` and can be disabled from Settings.
+- **Downloads page** (`smartbrowser://downloads`): hooks into the shared
+  session's `will-download`, so every download started by any tab shows up
+  live with progress, size and state. Per-item pause / resume / cancel and
+  open file / show in folder, plus a "Clear list" action. Persisted across
+  restarts.
+- **Settings page** (`smartbrowser://settings`): default search engine
+  (DuckDuckGo / Google / Brave / Bing / Startpage), ad-blocker on/off (with
+  live blocked-request counter), history recording on/off, home-page section
+  toggles (favorites / widgets / news), default AI assistant, plus a
+  "Check for updates" button wired to the in-app updater.
+- **Password manager** (`smartbrowser://passwords`): manual vault with
+  add / edit / delete, password reveal & copy-to-clipboard, search. Passwords
+  are encrypted at rest with Electron's `safeStorage` (Windows DPAPI / macOS
+  Keychain / Linux libsecret) so they're tied to the OS user account.
+- **AI shortcuts row on the new-tab page**: one-click buttons for ChatGPT,
+  Gemini, Claude and Perplexity. Opens each service's web UI in a new tab —
+  you stay signed in via that service's own cookies, no API keys required.
+- **AI widget** (`Ask AI`): pick a service, type a prompt, hit "Ask"
+  (or Ctrl+Enter). The widget copies the prompt to your clipboard and opens
+  the chosen service's chat page in a new tab. Where the service supports it
+  (Claude, Perplexity), the prompt is also passed as a `?q=` URL parameter so
+  the chat box pre-fills automatically.
+- **Hamburger menu in the URL bar**: quick links to History, Downloads,
+  Passwords, Settings, and the new-tab page — Chrome/Brave/Edge style.
+- **Default search engine respected by the omnibox**: typing a non-URL query
+  in the URL bar uses the engine selected in Settings (DuckDuckGo by default).
+
 ### Changed
 
 - **Chrome/Brave-style dynamic tab strip**: tabs are now custom flex children

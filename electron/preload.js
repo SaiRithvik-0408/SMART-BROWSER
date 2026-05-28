@@ -54,4 +54,45 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
       return () => ipcRenderer.removeListener('tab:open-new', handler);
     },
   },
+
+  history: {
+    list:   (opts) => ipcRenderer.invoke('history:list',   opts || {}),
+    remove: (ts)   => ipcRenderer.invoke('history:remove', ts),
+    clear:  (opts) => ipcRenderer.invoke('history:clear',  opts || {}),
+  },
+
+  downloads: {
+    list:   ()    => ipcRenderer.invoke('downloads:list'),
+    pause:  (id)  => ipcRenderer.invoke('downloads:pause',  id),
+    resume: (id)  => ipcRenderer.invoke('downloads:resume', id),
+    cancel: (id)  => ipcRenderer.invoke('downloads:cancel', id),
+    open:   (id)  => ipcRenderer.invoke('downloads:open',   id),
+    show:   (id)  => ipcRenderer.invoke('downloads:show',   id),
+    remove: (id)  => ipcRenderer.invoke('downloads:remove', id),
+    clear:  ()    => ipcRenderer.invoke('downloads:clear'),
+    onAdded: (cb) => {
+      const h = (_e, item) => cb(item);
+      ipcRenderer.on('downloads:added', h);
+      return () => ipcRenderer.removeListener('downloads:added', h);
+    },
+    onUpdated: (cb) => {
+      const h = (_e, item) => cb(item);
+      ipcRenderer.on('downloads:updated', h);
+      return () => ipcRenderer.removeListener('downloads:updated', h);
+    },
+  },
+
+  passwords: {
+    available: ()        => ipcRenderer.invoke('passwords:available'),
+    list:      ()        => ipcRenderer.invoke('passwords:list'),
+    reveal:    (id)      => ipcRenderer.invoke('passwords:reveal', id),
+    upsert:    (entry)   => ipcRenderer.invoke('passwords:upsert', entry),
+    remove:    (id)      => ipcRenderer.invoke('passwords:remove', id),
+  },
+
+  settings: {
+    get:       ()       => ipcRenderer.invoke('settings:get'),
+    set:       (patch)  => ipcRenderer.invoke('settings:set', patch),
+    searchUrl: (q)      => ipcRenderer.invoke('settings:search-url', q),
+  },
 });

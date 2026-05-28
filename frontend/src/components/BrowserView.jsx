@@ -2,16 +2,35 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Box, LinearProgress } from '@mui/material';
 import { proxyUrlFor } from '../api/client';
 import HomePage from './HomePage';
+import HistoryPage from './HistoryPage';
+import DownloadsPage from './DownloadsPage';
+import SettingsPage from './SettingsPage';
+import PasswordsPage from './PasswordsPage';
 
 const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 const inElectron = !!api?.isElectron;
+
+// Internal URL scheme — renders a React page in-tab instead of loading a
+// native WebContentsView. Keep in sync with the menu in TopBar.
+const INTERNAL_PAGES = {
+  'smartbrowser://home':      'home',
+  'smartbrowser://history':   'history',
+  'smartbrowser://downloads': 'downloads',
+  'smartbrowser://settings':  'settings',
+  'smartbrowser://passwords': 'passwords',
+};
+function internalKey(url) {
+  if (!url || url === 'home') return 'home';
+  return INTERNAL_PAGES[url] || null;
+}
 
 export default function BrowserView({ tab, isActive, onTitleChange, onNavigateInTab }) {
   const placeholderRef = useRef(null);
   const iframeRef      = useRef(null);
   const [loading, setLoading] = useState(false);
 
-  const isHome = !tab?.url || tab.url === 'home';
+  const internal = internalKey(tab?.url);
+  const isHome   = internal !== null;     // any internal page bypasses the native view
 
   // ============= Electron: native WebContentsView lifecycle =================
   useEffect(() => {
@@ -84,11 +103,19 @@ export default function BrowserView({ tab, isActive, onTitleChange, onNavigateIn
 
   if (!tab) return null;
 
-  // Home page is React content (no native view)
+  // Internal pages are React content (no native view) — home / history /
+  // downloads / settings / passwords all render in-tab via React.
   if (isHome) {
+    const open = (u) => onNavigateInTab(u);
+    const InternalView =
+      internal === 'history'   ? <HistoryPage   onOpen={open} /> :
+      internal === 'downloads' ? <DownloadsPage onOpen={open} /> :
+      internal === 'settings'  ? <SettingsPage  onOpen={open} /> :
+      internal === 'passwords' ? <PasswordsPage onOpen={open} /> :
+                                 <HomePage      onOpen={open} />;
     return (
       <Box sx={{ flex: 1, position: 'relative', overflow: 'auto' }}>
-        <HomePage onOpen={(u) => onNavigateInTab(u)} />
+        {InternalView}
       </Box>
     );
   }

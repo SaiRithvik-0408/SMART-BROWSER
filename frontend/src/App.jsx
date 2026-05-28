@@ -76,11 +76,16 @@ export default function App() {
     });
   };
 
-  const back     = () => { if (inElectron && active && active.url !== 'home') api.tab.back(active.id);
+  // Internal pages (home, smartbrowser://*) don't have a native WebContentsView,
+  // so back/forward/reload have to walk our in-React per-tab history instead
+  // of asking the main process.
+  const isInternalUrl = (u) => !u || u === 'home' || (typeof u === 'string' && u.startsWith('smartbrowser://'));
+
+  const back     = () => { if (inElectron && active && !isInternalUrl(active.url)) api.tab.back(active.id);
                            else updateActive(t => t.cursor > 0 ? { ...t, cursor: t.cursor - 1, url: t.history[t.cursor - 1] } : t); };
-  const forward  = () => { if (inElectron && active && active.url !== 'home') api.tab.forward(active.id);
+  const forward  = () => { if (inElectron && active && !isInternalUrl(active.url)) api.tab.forward(active.id);
                            else updateActive(t => t.cursor < t.history.length - 1 ? { ...t, cursor: t.cursor + 1, url: t.history[t.cursor + 1] } : t); };
-  const reload   = () => { if (inElectron && active && active.url !== 'home') api.tab.reload(active.id);
+  const reload   = () => { if (inElectron && active && !isInternalUrl(active.url)) api.tab.reload(active.id);
                            else updateActive(t => ({ ...t, url: t.url + '' })); };
   const home     = () => navigate('home');
 
