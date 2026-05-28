@@ -38,6 +38,17 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ### Added
 
+- **Fully draggable + resizable widget grid** (powered by `react-grid-layout`):
+  every widget on the new-tab page can now be dragged from its header to any
+  empty slot, and resized to any dimensions by dragging the bottom-right
+  corner. Layout persists across restarts. The grid is 12 columns wide with
+  ~80 px rows, so widgets snap to a fine grid you can compose like Notion
+  blocks. Each widget type has sensible default and minimum sizes (e.g. the
+  news widget defaults to full-width 12×6, stocks 6×4, clock 4×2).
+- **News is now a widget**, not a separate full-width section: drag it
+  anywhere, resize it, remove it, or add multiple instances with different
+  sections (Top / Markets / Tech). Old setups are auto-migrated so existing
+  widgets stay placed and a default news widget is added at the bottom.
 - **History page** (`smartbrowser://history`): every top-level navigation is
   recorded with URL, title, favicon and timestamp (capped at 5000 entries).
   Searchable, day-grouped, with per-entry remove + bulk "Clear last hour /
@@ -96,6 +107,12 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ### Fixed
 
+- **Home page wouldn't scroll past the visible viewport**: the BrowserView
+  wrapper and the per-tab flex containers were missing `min-height: 0`, which
+  is the standard flex-and-overflow trap — without it, an `overflow: auto`
+  child grows to fit its content instead of scrolling. Now the page scrolls
+  end-to-end so the full Widgets dashboard + news + anything else you add
+  is reachable.
 - **Installer error "Error opening file for writing" when SmartBrowser was
   running**: NSIS would refuse to overwrite `SmartBrowser.exe` (and Electron's
   helper EXEs that share the same name) if any instance was still running,

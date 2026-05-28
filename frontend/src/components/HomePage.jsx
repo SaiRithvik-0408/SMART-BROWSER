@@ -4,7 +4,6 @@ import SearchIcon from '@mui/icons-material/Search';
 import BoltIcon from '@mui/icons-material/Bolt';
 import { motion } from 'framer-motion';
 import Widgets from './Widgets';
-import NewsFeed from './NewsFeed';
 import Favorites from './Favorites';
 import AiShortcuts from './AiShortcuts';
 
@@ -71,8 +70,6 @@ export default function HomePage({ onOpen }) {
         </Box>
 
         <Widgets onOpen={onOpen} />
-
-        <NewsFeed onOpen={onOpen} />
       </Box>
     </Box>
   );

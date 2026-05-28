@@ -114,7 +114,7 @@ export default function BrowserView({ tab, isActive, onTitleChange, onNavigateIn
       internal === 'passwords' ? <PasswordsPage onOpen={open} /> :
                                  <HomePage      onOpen={open} />;
     return (
-      <Box sx={{ flex: 1, position: 'relative', overflow: 'auto' }}>
+      <Box sx={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'auto' }}>
         {InternalView}
       </Box>
     );

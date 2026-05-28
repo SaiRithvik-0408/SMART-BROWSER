@@ -50,7 +50,7 @@ async function loadFeed(feedUrl) {
   });
 }
 
-export default function NewsFeed({ onOpen }) {
+export default function NewsFeed({ onOpen, compact }) {
   const [section, setSection] = useState('top');
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
@@ -63,8 +63,14 @@ export default function NewsFeed({ onOpen }) {
 
   useEffect(() => { load(section); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [section]);
 
+  // Compact mode = embedded in a widget grid cell; ditch outer width/padding
+  // and let the parent (WidgetFrame) own its sizing and overflow.
+  const outerSx = compact
+    ? { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }
+    : { width: 'min(1100px, 95vw)', mt: 3, pb: 6 };
+
   return (
-    <Box sx={{ width: 'min(1100px, 95vw)', mt: 3, pb: 6 }}>
+    <Box sx={outerSx}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5,
         flexWrap: 'wrap', gap: 1 }}>
         <Typography sx={{ fontFamily: MONO, fontSize: 12, letterSpacing: 3, textTransform: 'uppercase',
@@ -106,8 +112,12 @@ export default function NewsFeed({ onOpen }) {
 
       <Box sx={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: 1.5,
+        gap: 1.25,
+        // In compact (widget) mode let the widget scroll internally — its
+        // parent gives it a fixed height. Outside the widget mode we let the
+        // page scroll instead.
+        ...(compact ? { flex: 1, overflow: 'auto', minHeight: 0, pr: 0.5 } : {}),
+        gridTemplateColumns: compact ? 'repeat(auto-fill, minmax(220px, 1fr))' : 'repeat(3, 1fr)',
         '@media (max-width: 900px)': { gridTemplateColumns: 'repeat(2, 1fr)' },
         '@media (max-width: 600px)': { gridTemplateColumns: '1fr' },
       }}>

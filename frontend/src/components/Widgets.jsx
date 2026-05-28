@@ -16,12 +16,22 @@ import PublicIcon from '@mui/icons-material/Public';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import SendIcon from '@mui/icons-material/Send';
+import NewspaperIcon from '@mui/icons-material/Newspaper';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { motion } from 'framer-motion';
 import { proxyUrlFor } from '../api/client';
+import GridLayout from 'react-grid-layout';
+import 'react-grid-layout/css/styles.css';
+import 'react-resizable/css/styles.css';
+import NewsFeed from './NewsFeed';
 
 const sbAPI = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
-const STORAGE_KEY = 'smartbrowser.widgets.v2';
+// Bumped to v3 because the layout shape changed (no more `size`; we now store
+// `layout` separately). Old v2 entries are auto-migrated on first load.
+const STORAGE_KEY        = 'smartbrowser.widgets.v3';
+const LEGACY_KEY_V2      = 'smartbrowser.widgets.v2';
+const LAYOUT_STORAGE_KEY = 'smartbrowser.widgets.layout.v1';
 
 // Nothing-UI-inspired tokens: monospace, uppercase, flat black surfaces,
 // a single red accent, dotted grid texture.
@@ -30,75 +40,160 @@ const ACCENT = '#d6453d';            // Nothing red
 const SURFACE = 'rgba(8,9,14,0.72)';
 const LINE = 'rgba(255,255,255,0.10)';
 
+// Per-type defaults used both for the catalog entries (icon shown in the Add
+// menu) AND for the default size/min-size when a NEW widget of that type is
+// dropped in. Sizes are in grid cells (12-col grid, ~80px row height by
+// default, so a 4x3 widget is roughly 320 × 240 px).
 const CATALOG = [
-  { type: 'clock',     label: 'Clock',       icon: <AccessTimeIcon fontSize="small" /> },
-  { type: 'calendar',  label: 'Calendar',    icon: <CalendarMonthIcon fontSize="small" /> },
-  { type: 'notes',     label: 'Notes',       icon: <StickyNote2Icon fontSize="small" /> },
-  { type: 'links',     label: 'Quick Links', icon: <LinkIcon fontSize="small" /> },
-  { type: 'worldclock',label: 'World Clock', icon: <PublicIcon fontSize="small" /> },
-  { type: 'stocks',    label: 'Stocks',      icon: <TrendingUpIcon fontSize="small" /> },
-  { type: 'ai',        label: 'Ask AI',      icon: <AutoAwesomeIcon fontSize="small" /> },
+  { type: 'clock',     label: 'Clock',       icon: <AccessTimeIcon fontSize="small" />,    defaultSize: { w: 4, h: 2 }, minSize: { w: 2, h: 2 } },
+  { type: 'calendar',  label: 'Calendar',    icon: <CalendarMonthIcon fontSize="small" />, defaultSize: { w: 4, h: 4 }, minSize: { w: 3, h: 3 } },
+  { type: 'notes',     label: 'Notes',       icon: <StickyNote2Icon fontSize="small" />,   defaultSize: { w: 4, h: 3 }, minSize: { w: 2, h: 2 } },
+  { type: 'links',     label: 'Quick Links', icon: <LinkIcon fontSize="small" />,          defaultSize: { w: 4, h: 4 }, minSize: { w: 2, h: 2 } },
+  { type: 'worldclock',label: 'World Clock', icon: <PublicIcon fontSize="small" />,        defaultSize: { w: 4, h: 4 }, minSize: { w: 3, h: 2 } },
+  { type: 'stocks',    label: 'Stocks',      icon: <TrendingUpIcon fontSize="small" />,    defaultSize: { w: 6, h: 4 }, minSize: { w: 3, h: 3 } },
+  { type: 'ai',        label: 'Ask AI',      icon: <AutoAwesomeIcon fontSize="small" />,   defaultSize: { w: 6, h: 4 }, minSize: { w: 3, h: 3 } },
+  { type: 'news',      label: 'News',        icon: <NewspaperIcon fontSize="small" />,     defaultSize: { w: 12, h: 6 }, minSize: { w: 4, h: 4 } },
 ];
+const catalogFor = (type) => CATALOG.find((c) => c.type === type) || CATALOG[0];
 
-// Resize presets — cycled by the resize button. col/row are grid spans.
-const SIZES = ['s', 'm', 'l', 'xl'];
-const SIZE_SPAN = {
-  s:  { col: 1, row: 1 },
-  m:  { col: 2, row: 1 },
-  l:  { col: 2, row: 2 },
-  xl: { col: 3, row: 2 },
-};
-const nextSize = (s) => SIZES[(SIZES.indexOf(s) + 1) % SIZES.length];
-
+// Default starting dashboard. Each entry has an `id`, `type`, `config`, and a
+// `layout` rect { x, y, w, h } in grid cells. The 12-column grid lets us put
+// 3 small widgets across (4 cells each) or 2 medium (6 cells each).
 const DEFAULTS = [
-  { id: 'w-clock',    type: 'clock',    size: 'm', config: {} },
-  { id: 'w-ai',       type: 'ai',       size: 'l', config: { service: 'chatgpt' } },
-  { id: 'w-stocks',   type: 'stocks',   size: 'l', config: {} },
-  { id: 'w-calendar', type: 'calendar', size: 'm', config: {} },
-  { id: 'w-notes',    type: 'notes',    size: 'm', config: { text: '' } },
+  { id: 'w-clock',    type: 'clock',    config: {},                        layout: { x: 0, y: 0, w: 4, h: 2 } },
+  { id: 'w-ai',       type: 'ai',       config: { service: 'chatgpt' },    layout: { x: 4, y: 0, w: 4, h: 4 } },
+  { id: 'w-stocks',   type: 'stocks',   config: {},                        layout: { x: 8, y: 0, w: 4, h: 4 } },
+  { id: 'w-calendar', type: 'calendar', config: {},                        layout: { x: 0, y: 2, w: 4, h: 4 } },
+  { id: 'w-notes',    type: 'notes',    config: { text: '' },              layout: { x: 4, y: 4, w: 4, h: 2 } },
+  { id: 'w-news',     type: 'news',     config: { section: 'top' },        layout: { x: 0, y: 6, w: 12, h: 6 } },
 ];
+
+// Convert the user's saved widgets to the shape react-grid-layout wants.
+function toLayoutArray(widgets) {
+  return widgets.map((w) => {
+    const meta = catalogFor(w.type);
+    const l = w.layout || { x: 0, y: Infinity, ...meta.defaultSize };
+    return {
+      i: w.id,
+      x: l.x, y: l.y, w: l.w, h: l.h,
+      minW: meta.minSize.w, minH: meta.minSize.h,
+    };
+  });
+}
 
 function loadWidgets() {
+  // 1. New v3 store
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    }
+  } catch {}
+  // 2. Migrate from legacy v2 (had `size: 's' | 'm' | 'l' | 'xl'` instead of layout)
+  try {
+    const raw = localStorage.getItem(LEGACY_KEY_V2);
+    if (raw) {
+      const SIZE_TO_LAYOUT = {
+        s:  { w: 3,  h: 2 },
+        m:  { w: 4,  h: 2 },
+        l:  { w: 6,  h: 4 },
+        xl: { w: 8,  h: 4 },
+      };
+      const v2 = JSON.parse(raw) || [];
+      let y = 0;
+      const migrated = v2.map((w) => {
+        const dims = SIZE_TO_LAYOUT[w.size || 'm'] || SIZE_TO_LAYOUT.m;
+        const out = { id: w.id, type: w.type, config: w.config || {},
+                      layout: { x: 0, y, w: dims.w, h: dims.h } };
+        y += dims.h;
+        return out;
+      });
+      // Auto-add a news widget at the bottom so the user sees it.
+      if (!migrated.find((w) => w.type === 'news')) {
+        migrated.push({ id: 'w-news', type: 'news', config: { section: 'top' },
+                        layout: { x: 0, y, w: 12, h: 6 } });
+      }
+      return migrated;
+    }
   } catch {}
   return DEFAULTS;
 }
 
+// Grid config — keep in sync with the CSS overrides below.
+const GRID_COLS    = 12;
+const ROW_HEIGHT   = 80;       // px per grid row
+const GRID_MARGIN  = 12;       // px between widgets (and around outer edges)
+
 export default function Widgets({ onOpen }) {
   const [widgets, setWidgets] = useState(loadWidgets);
   const [addAnchor, setAddAnchor] = useState(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const containerRef = React.useRef(null);
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(widgets)); } catch {}
   }, [widgets]);
 
+  // Measure available width so the grid can lay out at the right pixel size.
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const el = containerRef.current;
+    const measure = () => setContainerWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Pack new widgets at the bottom-left so they don't collide with existing
+  // widgets. react-grid-layout would happily push siblings around for us, but
+  // a deterministic placement is friendlier UX.
+  const nextDropY = (existing) => {
+    if (!existing.length) return 0;
+    return Math.max(...existing.map((w) => (w.layout?.y || 0) + (w.layout?.h || 1)));
+  };
+
   const addWidget = (type) => {
-    setWidgets((prev) => [...prev, { id: `w-${type}-${Date.now()}`, type, size: 'm', config: {} }]);
+    const meta = catalogFor(type);
+    setWidgets((prev) => [
+      ...prev,
+      {
+        id: `w-${type}-${Date.now()}`,
+        type, config: type === 'news' ? { section: 'top' } : {},
+        layout: { x: 0, y: nextDropY(prev), w: meta.defaultSize.w, h: meta.defaultSize.h },
+      },
+    ]);
     setAddAnchor(null);
   };
   const removeWidget = (id) => setWidgets((prev) => prev.filter((w) => w.id !== id));
-  const resizeWidget = (id) =>
-    setWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, size: nextSize(w.size || 'm') } : w)));
-  const moveWidget = (id, dir) => setWidgets((prev) => {
-    const idx = prev.findIndex((w) => w.id === id);
-    const next = idx + dir;
-    if (idx < 0 || next < 0 || next >= prev.length) return prev;
-    const copy = [...prev];
-    [copy[idx], copy[next]] = [copy[next], copy[idx]];
-    return copy;
-  });
   const updateConfig = (id, patch) =>
     setWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, config: { ...w.config, ...patch } } : w)));
 
+  // react-grid-layout fires onLayoutChange on every drag/resize tick — we
+  // just merge the new x/y/w/h back into each widget.
+  const onLayoutChange = (next) => {
+    setWidgets((prev) => prev.map((w) => {
+      const l = next.find((n) => n.i === w.id);
+      if (!l) return w;
+      const cur = w.layout || {};
+      if (cur.x === l.x && cur.y === l.y && cur.w === l.w && cur.h === l.h) return w;
+      return { ...w, layout: { x: l.x, y: l.y, w: l.w, h: l.h } };
+    }));
+  };
+
+  const layout = toLayoutArray(widgets);
+
   return (
-    <Box sx={{ width: 'min(1100px, 95vw)', mt: 2 }}>
+    <Box sx={{ width: 'min(1280px, 96vw)', mt: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, px: 0.5 }}>
         <Typography sx={{ fontFamily: MONO, fontSize: 12, letterSpacing: 3, textTransform: 'uppercase',
           color: '#9aa3c7', display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT }} />
           Dashboard
+          <Typography component="span" sx={{ ml: 1.5, fontSize: 10, color: '#5b6385', letterSpacing: 1 }}>
+            — drag header to move, drag corner to resize
+          </Typography>
         </Typography>
         <Button
           size="small" startIcon={<AddIcon />}
@@ -117,44 +212,61 @@ export default function Widgets({ onOpen }) {
         </Menu>
       </Box>
 
-      <Box sx={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        gridAutoRows: '116px',
-        gap: 1.5,
-        '@media (max-width: 720px)': { gridTemplateColumns: 'repeat(2, 1fr)' },
+      {/* Local CSS overrides for react-grid-layout to match our dark theme.
+          The placeholder is the ghost block shown while dragging/resizing. */}
+      <Box ref={containerRef} sx={{
+        '& .react-grid-item.react-grid-placeholder': {
+          background: 'rgba(122,162,255,0.15) !important',
+          border: '1px dashed rgba(122,162,255,0.5)',
+          borderRadius: '4px', opacity: '1 !important',
+        },
+        '& .react-grid-item > .react-resizable-handle': {
+          width: 16, height: 16, opacity: 0.4,
+          backgroundImage: 'none',
+          borderRight: '2px solid rgba(255,255,255,0.5)',
+          borderBottom: '2px solid rgba(255,255,255,0.5)',
+          borderBottomRightRadius: 2,
+        },
+        '& .react-grid-item:hover > .react-resizable-handle': { opacity: 1 },
+        '& .react-draggable-dragging': { cursor: 'grabbing !important', zIndex: 10 },
       }}>
-        {widgets.map((w, i) => {
-          const span = SIZE_SPAN[w.size || 'm'] || SIZE_SPAN.m;
-          return (
-            <motion.div
-              key={w.id} layout
-              initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
-              style={{ gridColumn: `span ${span.col}`, gridRow: `span ${span.row}` }}
-            >
-              <WidgetFrame
-                widget={w}
-                isFirst={i === 0}
-                isLast={i === widgets.length - 1}
-                onRemove={() => removeWidget(w.id)}
-                onResize={() => resizeWidget(w.id)}
-                onMove={(dir) => moveWidget(w.id, dir)}
-                onConfig={(patch) => updateConfig(w.id, patch)}
-                onOpen={onOpen}
-              />
-            </motion.div>
-          );
-        })}
+        {containerWidth > 0 && (
+          <GridLayout
+            className="sb-grid"
+            layout={layout}
+            cols={GRID_COLS}
+            rowHeight={ROW_HEIGHT}
+            width={containerWidth}
+            margin={[GRID_MARGIN, GRID_MARGIN]}
+            containerPadding={[0, 0]}
+            draggableHandle=".sb-drag-handle"
+            compactType="vertical"
+            preventCollision={false}
+            isBounded={false}
+            onLayoutChange={onLayoutChange}
+          >
+            {widgets.map((w) => (
+              <div key={w.id}>
+                <WidgetFrame
+                  widget={w}
+                  onRemove={() => removeWidget(w.id)}
+                  onConfig={(patch) => updateConfig(w.id, patch)}
+                  onOpen={onOpen}
+                />
+              </div>
+            ))}
+          </GridLayout>
+        )}
       </Box>
     </Box>
   );
 }
 
-function WidgetFrame({ widget, isFirst, isLast, onRemove, onResize, onMove, onConfig, onOpen }) {
-  const meta = CATALOG.find((c) => c.type === widget.type) || { label: widget.type, icon: null };
+function WidgetFrame({ widget, onRemove, onConfig, onOpen }) {
+  const meta = catalogFor(widget.type);
   return (
     <Box sx={{
-      height: '100%', display: 'flex', flexDirection: 'column',
+      height: '100%', width: '100%', display: 'flex', flexDirection: 'column',
       p: 1.25, borderRadius: '4px',
       background: SURFACE,
       border: `1px solid ${LINE}`,
@@ -164,39 +276,38 @@ function WidgetFrame({ widget, isFirst, isLast, onRemove, onResize, onMove, onCo
       '&:hover': { borderColor: 'rgba(255,255,255,0.22)' },
       '&:hover .wgt-controls': { opacity: 1 },
     }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75 }}>
+      {/* Header is the drag handle — only this strip starts a drag, so
+          inputs and buttons inside the widget body stay fully interactive. */}
+      <Box className="sb-drag-handle" sx={{
+        display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75,
+        cursor: 'grab', userSelect: 'none',
+      }}>
+        <DragIndicatorIcon sx={{ fontSize: 14, color: '#5b6385' }} />
         <Box sx={{ color: ACCENT, display: 'flex', '& svg': { fontSize: 15 } }}>{meta.icon}</Box>
         <Typography sx={{ flex: 1, fontFamily: MONO, fontSize: 10, letterSpacing: 2,
           textTransform: 'uppercase', color: '#9aa3c7' }}>
           {meta.label}
         </Typography>
         <Box className="wgt-controls" sx={{ display: 'flex', opacity: 0, transition: 'opacity 140ms ease' }}>
-          <Tooltip title="Resize">
-            <IconButton size="small" onClick={onResize}><AspectRatioIcon sx={{ fontSize: 14 }} /></IconButton>
-          </Tooltip>
-          <Tooltip title="Move left">
-            <span><IconButton size="small" disabled={isFirst} onClick={() => onMove(-1)}>
-              <ChevronLeftIcon sx={{ fontSize: 15 }} />
-            </IconButton></span>
-          </Tooltip>
-          <Tooltip title="Move right">
-            <span><IconButton size="small" disabled={isLast} onClick={() => onMove(1)}>
-              <ChevronRightIcon sx={{ fontSize: 15 }} />
-            </IconButton></span>
-          </Tooltip>
           <Tooltip title="Remove">
-            <IconButton size="small" onClick={onRemove}><CloseIcon sx={{ fontSize: 14 }} /></IconButton>
+            <IconButton size="small" onClick={onRemove}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <CloseIcon sx={{ fontSize: 14 }} />
+            </IconButton>
           </Tooltip>
         </Box>
       </Box>
       <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-        {widget.type === 'clock' && <ClockWidget size={widget.size} />}
+        {widget.type === 'clock' && <ClockWidget layout={widget.layout} />}
         {widget.type === 'calendar' && <CalendarWidget />}
         {widget.type === 'notes' && <NotesWidget config={widget.config} onConfig={onConfig} />}
         {widget.type === 'links' && <LinksWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
         {widget.type === 'worldclock' && <WorldClockWidget config={widget.config} onConfig={onConfig} />}
-        {widget.type === 'stocks' && <StockWidget config={widget.config} onConfig={onConfig} size={widget.size} />}
+        {widget.type === 'stocks' && <StockWidget config={widget.config} onConfig={onConfig} layout={widget.layout} />}
         {widget.type === 'ai' && <AiWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
+        {widget.type === 'news' && <NewsFeed onOpen={onOpen} compact />}
       </Box>
     </Box>
   );
@@ -211,9 +322,9 @@ function useNow(intervalMs = 1000) {
   return now;
 }
 
-function ClockWidget({ size }) {
+function ClockWidget({ layout }) {
   const now = useNow();
-  const big = size === 'l' || size === 'xl';
+  const big = (layout?.w || 4) >= 6 || (layout?.h || 2) >= 3;
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
       <Typography sx={{ fontFamily: MONO, fontWeight: 700, lineHeight: 1,
@@ -391,7 +502,7 @@ function fmtPrice(v, ccy) {
   return `${sym}${v.toFixed(2)}`;
 }
 
-function StockWidget({ config, onConfig, size }) {
+function StockWidget({ config, onConfig, layout }) {
   const symbols = (config.symbols && config.symbols.length) ? config.symbols : DEFAULT_SYMBOLS;
   const [quotes, setQuotes] = useState(null);
   const [error, setError] = useState('');
@@ -419,7 +530,7 @@ function StockWidget({ config, onConfig, size }) {
   const removeSymbol = (s) => onConfig({ symbols: symbols.filter((x) => x !== s) });
   const resetDefaults = () => onConfig({ symbols: DEFAULT_SYMBOLS });
 
-  const compact = size === 's' || size === 'm';
+  const compact = (layout?.w || 4) < 6;
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

@@ -133,13 +133,14 @@ export default function App() {
           flex: 1,
           display: 'flex',
           position: 'relative',
+          minHeight: 0,                  // critical: lets nested overflow:auto actually scroll
           // Reserve space on the right for the VPN panel so the page stays visible
           // and the panel area isn't covered by the native WebContentsView.
           pr: vpnPanelOpen ? '400px' : 0,
           transition: 'padding-right 180ms ease',
         }}>
           {tabs.map(t => (
-            <Box key={t.id} sx={{ flex: 1, display: t.id === activeId ? 'flex' : 'none' }}>
+            <Box key={t.id} sx={{ flex: 1, display: t.id === activeId ? 'flex' : 'none', minHeight: 0 }}>
               <BrowserView
                 tab={t}
                 isActive={t.id === activeId}
