@@ -547,6 +547,90 @@ ipcMain.handle('tab:open-devtools', (_e, tabId) => {
   target.isDevToolsOpened() ? target.closeDevTools() : target.openDevTools({ mode: 'right' });
 });
 
+// ----- Browser-wide actions (driven by the hamburger menu) ----------------
+// All of these operate on the currently active tab's WebContentsView. If
+// nothing is focused we fall back to the host window's webContents (the
+// React shell) so things like find-in-page can still work on the new tab
+// page.
+function activeWebContents() {
+  if (activeTabId) {
+    const t = tabs.get(activeTabId);
+    if (t) return t.view.webContents;
+  }
+  return mainWindow?.webContents;
+}
+
+ipcMain.handle('browser:zoom', (_e, direction) => {
+  const wc = activeWebContents();
+  if (!wc) return null;
+  const cur = wc.getZoomLevel?.() ?? 0;
+  let next = cur;
+  if (direction === 'in')      next = Math.min(cur + 0.5, 5);
+  else if (direction === 'out') next = Math.max(cur - 0.5, -3);
+  else if (direction === 'reset') next = 0;
+  else if (typeof direction === 'number') next = direction;
+  try { wc.setZoomLevel?.(next); } catch {}
+  return next;
+});
+
+ipcMain.handle('browser:find', (_e, query) => {
+  const wc = activeWebContents();
+  if (!wc) return false;
+  if (!query) { try { wc.stopFindInPage?.('clearSelection'); } catch {} return true; }
+  try { wc.findInPage?.(String(query)); return true; } catch { return false; }
+});
+
+ipcMain.handle('browser:print', () => {
+  const wc = activeWebContents();
+  if (!wc) return false;
+  try { wc.print?.({ silent: false, printBackground: true }); return true; } catch { return false; }
+});
+
+ipcMain.handle('browser:save-page', async () => {
+  const wc = activeWebContents();
+  if (!wc) return false;
+  try {
+    const url = wc.getURL();
+    const title = wc.getTitle() || 'page';
+    const safe = title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'page';
+    const { dialog } = require('electron');
+    const win = BrowserWindow.fromWebContents(wc) || mainWindow;
+    const res = await dialog.showSaveDialog(win, {
+      title: 'Save Page As',
+      defaultPath: `${safe}.html`,
+      filters: [{ name: 'HTML', extensions: ['html', 'htm'] }],
+    });
+    if (res.canceled || !res.filePath) return false;
+    await wc.savePage(res.filePath, 'HTMLComplete');
+    return true;
+  } catch { return false; }
+});
+
+// Clear browsing data — accepts a categories object so the renderer can
+// surface a Chromium-style dialog later. For the menu's one-click "Clear"
+// we just nuke everything we own: history, downloads, and the shared
+// session's HTTP cache + cookies.
+ipcMain.handle('browser:clear-data', async (_e, opts) => {
+  const o = Object.assign({ history: true, downloads: true, cache: true, cookies: false }, opts || {});
+  const out = { history: false, downloads: false, cache: false, cookies: false };
+  if (o.history)   { try { await history.clear({}); out.history = true; } catch {} }
+  if (o.downloads) { try { await downloads.clearAll(); out.downloads = true; } catch {} }
+  try {
+    const ses = browserSession();
+    if (o.cache)   { await ses.clearCache(); out.cache = true; }
+    if (o.cookies) { await ses.clearStorageData({ storages: ['cookies'] }); out.cookies = true; }
+  } catch {}
+  return out;
+});
+
+// New window — spawn another top-level BrowserWindow. Cheap because they
+// share the persistent `persist:smartbrowser` session under the hood, so
+// cookies/logins/extensions/VPN all carry across.
+ipcMain.handle('window:new', () => {
+  createWindow();
+  return true;
+});
+
 // ----- History -----------------------------------------------------------
 ipcMain.handle('history:list',   (_e, opts)  => history.list(opts || {}));
 ipcMain.handle('history:remove', (_e, ts)    => history.remove(ts));

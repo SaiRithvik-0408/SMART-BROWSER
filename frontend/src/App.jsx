@@ -288,6 +288,7 @@ export default function App() {
           onToggleVpnPanel={() => setVpnPanelOpen(v => !v)}
           notesOpen={notesPanelOpen}
           onToggleNotesPanel={() => { setNotesInitialId(null); setNotesPanelOpen(v => !v); }}
+          onNewTab={addTab}
         />
         <UpdateBanner />
         <Box sx={{

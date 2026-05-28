@@ -18,6 +18,10 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import SendIcon from '@mui/icons-material/Send';
 import NewspaperIcon from '@mui/icons-material/Newspaper';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import SearchIcon from '@mui/icons-material/Search';
+import BoltIcon from '@mui/icons-material/Bolt';
+import AppsIcon from '@mui/icons-material/Apps';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 import { motion } from 'framer-motion';
 import { proxyUrlFor } from '../api/client';
 import GridLayout from 'react-grid-layout';
@@ -27,10 +31,12 @@ import NewsFeed from './NewsFeed';
 
 const sbAPI = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
-// v4 halves the rowHeight (40 px instead of 80) so resize feels smooth — all
-// stored `h` values from v3 are doubled on first load so widgets keep the
-// same on-screen size.
-const STORAGE_KEY        = 'smartbrowser.widgets.v4';
+// v5 introduces three new widget types (search / aishortcuts / apps) which
+// migrate in as additions to the user's existing layout instead of wiping
+// it. v4 halved the rowHeight (40 px instead of 80) and doubled all `h`
+// values so widgets kept the same on-screen size after the change.
+const STORAGE_KEY        = 'smartbrowser.widgets.v5';
+const LEGACY_KEY_V4      = 'smartbrowser.widgets.v4';
 const LEGACY_KEY_V3      = 'smartbrowser.widgets.v3';
 const LEGACY_KEY_V2      = 'smartbrowser.widgets.v2';
 const LAYOUT_STORAGE_KEY = 'smartbrowser.widgets.layout.v1';
@@ -50,27 +56,37 @@ const LINE = 'rgba(255,255,255,0.10)';
 // row height to 40 px for smoother user resizing. A widget with h=4 here is
 // the same on-screen as h=2 was in v3.
 const CATALOG = [
-  { type: 'clock',     label: 'Clock',       icon: <AccessTimeIcon fontSize="small" />,    defaultSize: { w: 4, h: 4  }, minSize: { w: 2, h: 4 } },
-  { type: 'calendar',  label: 'Calendar',    icon: <CalendarMonthIcon fontSize="small" />, defaultSize: { w: 4, h: 8  }, minSize: { w: 3, h: 6 } },
-  { type: 'notes',     label: 'Notes',       icon: <StickyNote2Icon fontSize="small" />,   defaultSize: { w: 4, h: 6  }, minSize: { w: 2, h: 4 } },
-  { type: 'links',     label: 'Quick Links', icon: <LinkIcon fontSize="small" />,          defaultSize: { w: 4, h: 8  }, minSize: { w: 2, h: 4 } },
-  { type: 'worldclock',label: 'World Clock', icon: <PublicIcon fontSize="small" />,        defaultSize: { w: 4, h: 8  }, minSize: { w: 3, h: 4 } },
-  { type: 'stocks',    label: 'Stocks',      icon: <TrendingUpIcon fontSize="small" />,    defaultSize: { w: 6, h: 8  }, minSize: { w: 3, h: 6 } },
-  { type: 'ai',        label: 'Ask AI',      icon: <AutoAwesomeIcon fontSize="small" />,   defaultSize: { w: 6, h: 8  }, minSize: { w: 3, h: 6 } },
-  { type: 'news',      label: 'News',        icon: <NewspaperIcon fontSize="small" />,     defaultSize: { w: 12, h: 12 }, minSize: { w: 4, h: 8 } },
+  { type: 'search',     label: 'Search',       icon: <SearchIcon fontSize="small" />,        defaultSize: { w: 12, h: 3  }, minSize: { w: 4, h: 3 } },
+  { type: 'aishortcuts',label: 'AI Shortcuts', icon: <SmartToyIcon fontSize="small" />,      defaultSize: { w: 12, h: 3  }, minSize: { w: 4, h: 3 } },
+  { type: 'apps',       label: 'Apps',         icon: <AppsIcon fontSize="small" />,          defaultSize: { w: 6,  h: 10 }, minSize: { w: 4, h: 6 } },
+  { type: 'clock',      label: 'Clock',        icon: <AccessTimeIcon fontSize="small" />,    defaultSize: { w: 4,  h: 4  }, minSize: { w: 2, h: 4 } },
+  { type: 'calendar',   label: 'Calendar',     icon: <CalendarMonthIcon fontSize="small" />, defaultSize: { w: 4,  h: 8  }, minSize: { w: 3, h: 6 } },
+  { type: 'notes',      label: 'Notes',        icon: <StickyNote2Icon fontSize="small" />,   defaultSize: { w: 4,  h: 6  }, minSize: { w: 2, h: 4 } },
+  { type: 'links',      label: 'Quick Links',  icon: <LinkIcon fontSize="small" />,          defaultSize: { w: 4,  h: 8  }, minSize: { w: 2, h: 4 } },
+  { type: 'worldclock', label: 'World Clock',  icon: <PublicIcon fontSize="small" />,        defaultSize: { w: 4,  h: 8  }, minSize: { w: 3, h: 4 } },
+  { type: 'stocks',     label: 'Stocks',       icon: <TrendingUpIcon fontSize="small" />,    defaultSize: { w: 6,  h: 8  }, minSize: { w: 3, h: 6 } },
+  { type: 'ai',         label: 'Ask AI',       icon: <AutoAwesomeIcon fontSize="small" />,   defaultSize: { w: 6,  h: 8  }, minSize: { w: 3, h: 6 } },
+  { type: 'news',       label: 'News',         icon: <NewspaperIcon fontSize="small" />,     defaultSize: { w: 12, h: 12 }, minSize: { w: 4, h: 8 } },
 ];
 const catalogFor = (type) => CATALOG.find((c) => c.type === type) || CATALOG[0];
 
 // Default starting dashboard. Each entry has an `id`, `type`, `config`, and a
 // `layout` rect { x, y, w, h } in grid cells. The 12-column grid lets us put
 // 3 small widgets across (4 cells each) or 2 medium (6 cells each).
+//
+// Layout is the home-page-as-dashboard order: search bar across the top,
+// AI shortcuts strip below, then the Apps launcher next to the existing
+// clock/stocks/etc.
 const DEFAULTS = [
-  { id: 'w-clock',    type: 'clock',    config: {},                        layout: { x: 0, y: 0,  w: 4,  h: 4  } },
-  { id: 'w-ai',       type: 'ai',       config: { service: 'chatgpt' },    layout: { x: 4, y: 0,  w: 4,  h: 8  } },
-  { id: 'w-stocks',   type: 'stocks',   config: {},                        layout: { x: 8, y: 0,  w: 4,  h: 8  } },
-  { id: 'w-calendar', type: 'calendar', config: {},                        layout: { x: 0, y: 4,  w: 4,  h: 8  } },
-  { id: 'w-notes',    type: 'notes',    config: {},                        layout: { x: 4, y: 8,  w: 4,  h: 4  } },
-  { id: 'w-news',     type: 'news',     config: { section: 'top' },        layout: { x: 0, y: 12, w: 12, h: 12 } },
+  { id: 'w-search',     type: 'search',     config: {},                     layout: { x: 0, y: 0,  w: 12, h: 3  } },
+  { id: 'w-ai-shorts',  type: 'aishortcuts',config: {},                     layout: { x: 0, y: 3,  w: 12, h: 3  } },
+  { id: 'w-apps',       type: 'apps',       config: { suite: 'google' },    layout: { x: 0, y: 6,  w: 6,  h: 10 } },
+  { id: 'w-clock',      type: 'clock',      config: {},                     layout: { x: 6, y: 6,  w: 6,  h: 4  } },
+  { id: 'w-ai',         type: 'ai',         config: { service: 'chatgpt' }, layout: { x: 6, y: 10, w: 6,  h: 6  } },
+  { id: 'w-stocks',     type: 'stocks',     config: {},                     layout: { x: 0, y: 16, w: 6,  h: 8  } },
+  { id: 'w-calendar',   type: 'calendar',   config: {},                     layout: { x: 6, y: 16, w: 6,  h: 8  } },
+  { id: 'w-notes',      type: 'notes',      config: {},                     layout: { x: 0, y: 24, w: 4,  h: 6  } },
+  { id: 'w-news',       type: 'news',       config: { section: 'top' },     layout: { x: 4, y: 24, w: 8,  h: 12 } },
 ];
 
 // Convert the user's saved widgets to the shape react-grid-layout wants.
@@ -86,8 +102,46 @@ function toLayoutArray(widgets) {
   });
 }
 
+// Add the three new "home-page-as-widgets" types (search / aishortcuts /
+// apps) to a user's existing layout without disturbing what they already
+// have. We push the existing widgets DOWN by the height of the new strip
+// so search/AI land at the top. Idempotent: if a type already exists the
+// user's instance is kept untouched.
+function addHomeEssentials(widgets) {
+  const out = Array.isArray(widgets) ? [...widgets] : [];
+  const has = (t) => out.some((w) => w.type === t);
+  const missing = [];
+  if (!has('search'))      missing.push({ id: 'w-search',    type: 'search',      config: {},                  layout: { w: 12, h: 3  } });
+  if (!has('aishortcuts')) missing.push({ id: 'w-ai-shorts', type: 'aishortcuts', config: {},                  layout: { w: 12, h: 3  } });
+  if (!has('apps'))        missing.push({ id: 'w-apps',      type: 'apps',        config: { suite: 'google' }, layout: { w: 6,  h: 10 } });
+  if (missing.length === 0) return out;
+  // Shift existing widgets down by the cumulative height of the new strip
+  // so the new ones land at the top of the grid. The Apps widget only
+  // takes half the width so it counts as a 0-row push.
+  const shift = (missing.find((m) => m.type === 'search') ? 3 : 0)
+              + (missing.find((m) => m.type === 'aishortcuts') ? 3 : 0);
+  const shifted = out.map((w) => ({
+    ...w,
+    layout: w.layout ? { ...w.layout, y: (w.layout.y || 0) + shift } : w.layout,
+  }));
+  let y = 0;
+  const prepended = [];
+  for (const m of missing) {
+    if (m.type === 'apps') {
+      // Apps is half-width, slot it next to existing content rather than on
+      // its own row — append it at the very bottom.
+      const maxY = Math.max(0, ...shifted.map((w) => (w.layout?.y || 0) + (w.layout?.h || 1)));
+      prepended.push({ ...m, layout: { x: 0, y: maxY, ...m.layout } });
+    } else {
+      prepended.push({ ...m, layout: { x: 0, y, ...m.layout } });
+      y += m.layout.h;
+    }
+  }
+  return [...prepended, ...shifted];
+}
+
 function loadWidgets() {
-  // 1. New v4 store
+  // 1. New v5 store — current canonical format.
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -95,13 +149,25 @@ function loadWidgets() {
       if (Array.isArray(parsed) && parsed.length) return parsed;
     }
   } catch {}
-  // 2. Migrate from v3 (same shape, but rowHeight was 80 px — double all `h`
-  //    and `y` values so the layout looks identical with the new 40 px row).
+  // 2. Migrate from v4: same shape, just add the new home-essential widgets
+  //    (search/AI/apps) on top of what the user already has.
+  try {
+    const raw = localStorage.getItem(LEGACY_KEY_V4);
+    if (raw) {
+      const v4 = JSON.parse(raw) || [];
+      const migrated = addHomeEssentials(v4);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated)); } catch {}
+      return migrated;
+    }
+  } catch {}
+  // 3. Migrate from v3 (same shape, but rowHeight was 80 px — double all `h`
+  //    and `y` values so the layout looks identical with the new 40 px row),
+  //    then layer the v5 essentials on top.
   try {
     const raw = localStorage.getItem(LEGACY_KEY_V3);
     if (raw) {
       const v3 = JSON.parse(raw) || [];
-      const migrated = v3.map((w) => ({
+      const v4ish = v3.map((w) => ({
         ...w,
         layout: w.layout ? {
           x: w.layout.x,
@@ -110,6 +176,7 @@ function loadWidgets() {
           h: (w.layout.h || 1) * 2,
         } : undefined,
       }));
+      const migrated = addHomeEssentials(v4ish);
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated)); } catch {}
       return migrated;
     }
@@ -139,7 +206,7 @@ function loadWidgets() {
         migrated.push({ id: 'w-news', type: 'news', config: { section: 'top' },
                         layout: { x: 0, y, w: 12, h: 6 } });
       }
-      return migrated;
+      return addHomeEssentials(migrated);
     }
   } catch {}
   return DEFAULTS;
@@ -347,6 +414,9 @@ function WidgetFrame({ widget, onRemove, onConfig, onOpen }) {
         </Box>
       </Box>
       <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        {widget.type === 'search' && <SearchWidget onOpen={onOpen} />}
+        {widget.type === 'aishortcuts' && <AiShortcutsWidget onOpen={onOpen} />}
+        {widget.type === 'apps' && <AppsWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
         {widget.type === 'clock' && <ClockWidget layout={widget.layout} />}
         {widget.type === 'calendar' && <CalendarWidget />}
         {widget.type === 'notes' && <NotesWidget config={widget.config} onConfig={onConfig} />}
@@ -1122,6 +1192,210 @@ function AiWidget({ config, onConfig, onOpen }) {
         >
           <SendIcon sx={{ fontSize: 13 }} /> {busy ? '…' : (canInline ? 'Ask' : 'Open')}
         </Box>
+      </Box>
+    </Box>
+  );
+}
+
+// =========================================================================
+// SearchWidget — the omnibar lifted out of HomePage and made placeable. It
+// uses the user's chosen default search engine via api.settings.searchUrl,
+// with a DDG fallback when the IPC isn't available (web preview mode).
+// =========================================================================
+function SearchWidget({ onOpen }) {
+  const [q, setQ] = useState('');
+  const submit = async (e) => {
+    e?.preventDefault?.();
+    const v = q.trim();
+    if (!v) return;
+    setQ('');
+    const isUrl = /^(https?:\/\/|[\w-]+\.[a-z]{2,})/i.test(v);
+    if (isUrl) {
+      onOpen(v.startsWith('http') ? v : `https://${v}`);
+      return;
+    }
+    let url = `https://duckduckgo.com/?q=${encodeURIComponent(v)}`;
+    try {
+      if (sbAPI?.settings?.searchUrl) url = await sbAPI.settings.searchUrl(v);
+    } catch {}
+    onOpen(url);
+  };
+  return (
+    <Box component="form" onSubmit={submit}
+      sx={{
+        height: '100%', width: '100%',
+        display: 'flex', alignItems: 'center', gap: 1,
+        px: 1.5, borderRadius: 999,
+        background: 'rgba(255,255,255,0.04)',
+        border: `1px solid ${LINE}`,
+      }}>
+      <SearchIcon sx={{ color: '#9aa3c7', fontSize: 18 }} />
+      <InputBase
+        fullWidth value={q} onChange={(e) => setQ(e.target.value)}
+        placeholder="Search the web privately, or paste a URL"
+        sx={{ color: '#e6e9f5', fontSize: 14 }}
+      />
+      <IconButton type="submit" size="small" sx={{ color: ACCENT }}>
+        <BoltIcon fontSize="small" />
+      </IconButton>
+    </Box>
+  );
+}
+
+// =========================================================================
+// AiShortcutsWidget — the row of ChatGPT/Gemini/Claude/Perplexity chips
+// from the old hero, placed as a widget. Clicking a chip opens the
+// service's web UI in a new tab (just like the standalone shortcuts).
+// =========================================================================
+const SHORTCUT_SERVICES = [
+  { id: 'chatgpt',    label: 'ChatGPT',    url: 'https://chatgpt.com/',                accent: '#10a37f' },
+  { id: 'gemini',     label: 'Gemini',     url: 'https://gemini.google.com/app',       accent: '#4285f4' },
+  { id: 'claude',     label: 'Claude',     url: 'https://claude.ai/new',               accent: '#d97706' },
+  { id: 'perplexity', label: 'Perplexity', url: 'https://www.perplexity.ai/',          accent: '#20808d' },
+];
+
+function AiShortcutsWidget({ onOpen }) {
+  return (
+    <Box sx={{
+      height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      gap: 1, flexWrap: 'wrap',
+    }}>
+      {SHORTCUT_SERVICES.map((s) => (
+        <Box
+          key={s.id}
+          onClick={() => onOpen(s.url)}
+          sx={{
+            display: 'inline-flex', alignItems: 'center', gap: 0.75,
+            px: 1.5, py: 0.75, borderRadius: 999, cursor: 'pointer',
+            fontFamily: MONO, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase',
+            color: '#e6e9f5',
+            background: 'rgba(8,9,14,0.6)',
+            border: `1px solid ${LINE}`,
+            transition: 'all 140ms ease',
+            '&:hover': {
+              background: `${s.accent}1f`, borderColor: `${s.accent}88`, transform: 'translateY(-1px)',
+            },
+          }}
+        >
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', background: s.accent }} />
+          {s.label}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+// =========================================================================
+// AppsWidget — Google / Microsoft 365 app launcher with a toggle button
+// like Edge's "Microsoft 365" pane. Click any tile to open the app in a
+// new tab; toggle the suite in the header to flip the whole tile set.
+// The choice is persisted in widget config so each AppsWidget instance
+// can be set independently (handy when the user wants two side-by-side).
+// =========================================================================
+const SUITES = {
+  google: {
+    label: 'Google',
+    accent: '#4285f4',
+    apps: [
+      { id: 'gmail',    label: 'Gmail',    url: 'https://mail.google.com/',      color: '#ea4335' },
+      { id: 'drive',    label: 'Drive',    url: 'https://drive.google.com/',     color: '#fbbc04' },
+      { id: 'docs',     label: 'Docs',     url: 'https://docs.google.com/',      color: '#4285f4' },
+      { id: 'sheets',   label: 'Sheets',   url: 'https://sheets.google.com/',    color: '#34a853' },
+      { id: 'slides',   label: 'Slides',   url: 'https://slides.google.com/',    color: '#fbbc04' },
+      { id: 'calendar', label: 'Calendar', url: 'https://calendar.google.com/',  color: '#1a73e8' },
+      { id: 'meet',     label: 'Meet',     url: 'https://meet.google.com/',      color: '#00897b' },
+      { id: 'maps',     label: 'Maps',     url: 'https://maps.google.com/',      color: '#ea4335' },
+      { id: 'youtube',  label: 'YouTube',  url: 'https://youtube.com/',          color: '#ff0000' },
+      { id: 'photos',   label: 'Photos',   url: 'https://photos.google.com/',    color: '#34a853' },
+      { id: 'keep',     label: 'Keep',     url: 'https://keep.google.com/',      color: '#fbbc04' },
+      { id: 'contacts', label: 'Contacts', url: 'https://contacts.google.com/',  color: '#1a73e8' },
+    ],
+  },
+  microsoft: {
+    label: 'Microsoft',
+    accent: '#0078d4',
+    apps: [
+      { id: 'outlook',  label: 'Outlook',    url: 'https://outlook.live.com/',                 color: '#0078d4' },
+      { id: 'onedrive', label: 'OneDrive',   url: 'https://onedrive.live.com/',                color: '#0078d4' },
+      { id: 'word',     label: 'Word',       url: 'https://www.office.com/launch/word',        color: '#185abd' },
+      { id: 'excel',    label: 'Excel',      url: 'https://www.office.com/launch/excel',       color: '#107c41' },
+      { id: 'pp',       label: 'PowerPoint', url: 'https://www.office.com/launch/powerpoint',  color: '#c43e1c' },
+      { id: 'onenote',  label: 'OneNote',    url: 'https://www.office.com/launch/onenote',     color: '#80397b' },
+      { id: 'teams',    label: 'Teams',      url: 'https://teams.microsoft.com/',              color: '#5059c9' },
+      { id: 'mscal',    label: 'Calendar',   url: 'https://outlook.live.com/calendar/',        color: '#0078d4' },
+      { id: 'todo',     label: 'To Do',      url: 'https://to-do.live.com/',                   color: '#3b3a8c' },
+      { id: 'forms',    label: 'Forms',      url: 'https://forms.office.com/',                 color: '#107c41' },
+      { id: 'bing',     label: 'Bing',       url: 'https://www.bing.com/',                     color: '#008272' },
+      { id: 'copilot',  label: 'Copilot',    url: 'https://copilot.microsoft.com/',            color: '#00a4ef' },
+    ],
+  },
+};
+
+function AppsWidget({ config, onConfig, onOpen }) {
+  const suiteKey = config.suite === 'microsoft' ? 'microsoft' : 'google';
+  const suite = SUITES[suiteKey];
+  const toggleTo = suiteKey === 'google' ? 'microsoft' : 'google';
+  return (
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {/* Header: suite toggle (acts like Edge's "Microsoft 365" pill). */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+        <Typography sx={{ fontFamily: MONO, fontSize: 10, letterSpacing: 2, color: '#9aa3c7',
+          textTransform: 'uppercase' }}>
+          {suite.label} Apps
+        </Typography>
+        <Box
+          onClick={() => onConfig({ suite: toggleTo })}
+          sx={{
+            display: 'inline-flex', alignItems: 'center', gap: 0.5, cursor: 'pointer',
+            px: 1, py: 0.4, borderRadius: 999,
+            fontFamily: MONO, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase',
+            color: '#e6e9f5',
+            background: 'rgba(255,255,255,0.05)',
+            border: `1px solid ${SUITES[toggleTo].accent}88`,
+            transition: 'background 140ms ease',
+            '&:hover': { background: `${SUITES[toggleTo].accent}22` },
+          }}
+        >
+          Switch to {SUITES[toggleTo].label}
+        </Box>
+      </Box>
+      {/* Tile grid — auto-fits as the widget is resized. minmax keeps tiles
+          at a reasonable touch size even on small widgets. */}
+      <Box sx={{
+        flex: 1, overflow: 'auto', minHeight: 0,
+        display: 'grid', gap: 1,
+        gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))',
+        alignContent: 'start',
+      }}>
+        {suite.apps.map((app) => (
+          <Box
+            key={app.id}
+            onClick={() => onOpen(app.url)}
+            title={app.label}
+            sx={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 0.5, py: 1, px: 0.5, borderRadius: 1, cursor: 'pointer',
+              background: 'rgba(255,255,255,0.03)',
+              border: `1px solid ${LINE}`,
+              transition: 'all 140ms ease',
+              '&:hover': { background: `${app.color}1a`, borderColor: `${app.color}66`, transform: 'translateY(-1px)' },
+            }}
+          >
+            <Box sx={{
+              width: 28, height: 28, borderRadius: 0.75,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: app.color, color: '#fff',
+              fontFamily: MONO, fontWeight: 700, fontSize: 12,
+            }}>
+              {app.label.slice(0, 1).toUpperCase()}
+            </Box>
+            <Typography sx={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: 0.5, color: '#cdd3ee',
+              textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              maxWidth: '100%' }}>
+              {app.label}
+            </Typography>
+          </Box>
+        ))}
       </Box>
     </Box>
   );

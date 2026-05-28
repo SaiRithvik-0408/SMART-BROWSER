@@ -8,6 +8,76 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.30] - 2026-05-29
+
+### Added — Home page is now fully widgetized (search + AI + Google/Microsoft apps)
+
+The home page used to have a fixed hero: SmartBrowser wordmark, a big
+search bar, and a row of AI shortcuts above the dashboard. None of that
+was movable. Now everything below the wordmark is a widget you can drag,
+resize, or delete:
+
+- **Search widget** — the omnibar lifted out of the hero. Honors your
+  default search engine in Settings, falls back to DuckDuckGo. Use it in
+  the top-left, embed a small one in the bottom-right, hide it entirely
+  — same rules as every other widget.
+- **AI Shortcuts widget** — the ChatGPT / Gemini / Claude / Perplexity
+  chip row, also widgetized. Each chip opens the service's web UI in a
+  new tab (your existing logins carry through via the shared session).
+- **Apps widget — Google + Microsoft 365 launcher** — a 9-dot-style
+  app grid with a "Switch to Microsoft" / "Switch to Google" toggle in
+  the header. Each tile (Gmail, Drive, Docs, Calendar, YouTube …
+  Outlook, OneDrive, Word, Teams, Copilot …) opens the service in a
+  new tab. The selected suite is persisted per widget instance, so you
+  can have a Google launcher and a Microsoft launcher side-by-side if
+  you want.
+
+All three are positionable through the same drag/resize handles as the
+existing widgets — corner / east-edge / south-edge pills. The dashboard
+auto-migrates: existing users get the three new widgets pre-pended at
+the top of their grid the first time they open v1.0.30, with their
+previous widgets shifted down so nothing is lost.
+
+### Added — Brave-style hamburger menu in the top bar
+
+The TopBar menu was a short list of internal pages. It's now a full
+browser menu, grouped like Brave's:
+
+| Group        | Items                                                    |
+| ------------ | -------------------------------------------------------- |
+| **New**      | New tab (Ctrl+T), New window (Ctrl+N), VPN               |
+| **Library**  | History, Downloads (Ctrl+J), Passwords, Notes, Extensions, Delete browsing data… |
+| **Page**     | Zoom – / 100% / +, Find in page… (Ctrl+F), Save page as… (Ctrl+S), Print… (Ctrl+P) |
+| **Browser**  | Settings, New tab page, SmartBrowser on GitHub, Exit     |
+
+The zoom row, find, save, print, and clear-data items all go through
+new IPC handlers (`browser:zoom`, `browser:find`, `browser:print`,
+`browser:save-page`, `browser:clear-data`) that act on the currently
+active tab's WebContentsView. "New window" spins up another top-level
+BrowserWindow that shares the same persistent session (cookies, VPN,
+extensions all carry across).
+
+### Files changed
+
+- `frontend/src/components/Widgets.jsx` — new `search`, `aishortcuts`,
+  `apps` types added to the catalog and the WidgetFrame switch. New
+  `SUITES` constant defining Google + Microsoft apps. Storage bumped to
+  `smartbrowser.widgets.v5`; `addHomeEssentials()` migrates v4 / v3 / v2
+  layouts forward by pre-pending the new widgets.
+- `frontend/src/components/HomePage.jsx` — static search Paper +
+  `AiShortcuts` removed. Only the compact SmartBrowser wordmark + the
+  widget dashboard remain.
+- `frontend/src/components/TopBar.jsx` — menu rebuilt with new tab /
+  zoom / find / save / print / clear-data / exit; takes a new
+  `onNewTab` prop.
+- `frontend/src/App.jsx` — passes `addTab` as `onNewTab` to `TopBar`.
+- `electron/main.js` — `browser:zoom`, `browser:find`, `browser:print`,
+  `browser:save-page`, `browser:clear-data`, `window:new` handlers.
+  Helper `activeWebContents()` resolves the focused tab's WebContents
+  with a window-level fallback.
+- `electron/preload.js` — exposes `smartBrowserAPI.browser.*` and
+  `smartBrowserAPI.window.newWindow`.
+
 ## [v1.0.29] - 2026-05-29
 
 ### Fixed — App icon and Task Manager identity

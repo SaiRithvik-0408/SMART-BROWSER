@@ -116,4 +116,18 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
     remove:        (id)               => ipcRenderer.invoke('extensions:remove', id),
     setEnabled:    (id, enabled)      => ipcRenderer.invoke('extensions:set-enabled', { id, enabled }),
   },
+
+  // Browser-wide actions that the hamburger menu invokes. All target the
+  // CURRENTLY ACTIVE tab in the main window — the renderer doesn't have to
+  // know which WebContentsView is focused.
+  browser: {
+    zoom:       (direction)  => ipcRenderer.invoke('browser:zoom', direction),  // 'in' | 'out' | 'reset' | number
+    find:       (query)      => ipcRenderer.invoke('browser:find', query || ''),
+    print:      ()           => ipcRenderer.invoke('browser:print'),
+    savePage:   ()           => ipcRenderer.invoke('browser:save-page'),
+    clearData:  (opts)       => ipcRenderer.invoke('browser:clear-data', opts || {}),
+  },
+  window: {
+    newWindow:  ()           => ipcRenderer.invoke('window:new'),
+  },
 });

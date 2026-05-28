@@ -18,6 +18,17 @@ import ExtensionIcon from '@mui/icons-material/Extension';
 import SettingsIcon from '@mui/icons-material/Settings';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import AddIcon from '@mui/icons-material/Add';
+import LaunchIcon from '@mui/icons-material/Launch';
+import ZoomInIcon from '@mui/icons-material/ZoomIn';
+import ZoomOutIcon from '@mui/icons-material/ZoomOut';
+import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
+import FindInPageIcon from '@mui/icons-material/FindInPage';
+import PrintIcon from '@mui/icons-material/Print';
+import SaveAltIcon from '@mui/icons-material/SaveAlt';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import LogoutIcon from '@mui/icons-material/Logout';
+import StarIcon from '@mui/icons-material/Star';
 
 const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
@@ -25,6 +36,7 @@ export default function TopBar({
   url, onNavigate, onBack, onForward, onReload, onHome,
   vpnOn, onToggleVpnPanel, activeServerLabel,
   notesOpen, onToggleNotesPanel,
+  onNewTab,
 }) {
   const [input, setInput] = useState(url || '');
   const [menuAnchor, setMenuAnchor] = useState(null);
@@ -46,14 +58,19 @@ export default function TopBar({
     onNavigate(v);
   };
 
-  const goTo = (url) => { setMenuAnchor(null); onNavigate(url); };
-  const MENU = [
-    { key: 'history',    label: 'History',    icon: <HistoryIcon fontSize="small" />,    url: 'smartbrowser://history' },
-    { key: 'downloads',  label: 'Downloads',  icon: <DownloadIcon fontSize="small" />,   url: 'smartbrowser://downloads' },
-    { key: 'extensions', label: 'Extensions', icon: <ExtensionIcon fontSize="small" />,  url: 'smartbrowser://extensions' },
-    { key: 'passwords',  label: 'Passwords',  icon: <KeyIcon fontSize="small" />,        url: 'smartbrowser://passwords' },
-    { key: 'settings',   label: 'Settings',   icon: <SettingsIcon fontSize="small" />,   url: 'smartbrowser://settings' },
-  ];
+  const closeMenu = () => setMenuAnchor(null);
+  const goTo = (url) => { closeMenu(); onNavigate(url); };
+  const run = (fn) => () => { closeMenu(); try { fn?.(); } catch {} };
+  const clearAllData = async () => {
+    closeMenu();
+    try {
+      if (api?.browser?.clearData) await api.browser.clearData({ history: true, downloads: true, cache: true, cookies: false });
+    } catch {}
+  };
+  const zoom = (dir) => async () => {
+    closeMenu();
+    try { if (api?.browser?.zoom) await api.browser.zoom(dir); } catch {}
+  };
 
   return (
     <Paper
@@ -120,25 +137,103 @@ export default function TopBar({
         </IconButton>
       </Tooltip>
       <Menu
-        anchorEl={menuAnchor} open={!!menuAnchor} onClose={() => setMenuAnchor(null)}
+        anchorEl={menuAnchor} open={!!menuAnchor} onClose={closeMenu}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-        PaperProps={{ sx: { minWidth: 220, mt: 0.5 } }}
+        PaperProps={{ sx: { minWidth: 260, mt: 0.5 } }}
       >
-        {MENU.map((m) => (
-          <MenuItem key={m.key} onClick={() => goTo(m.url)}>
-            <ListItemIcon>{m.icon}</ListItemIcon>
-            <ListItemText>{m.label}</ListItemText>
-          </MenuItem>
-        ))}
+        {/* --- New tab / new window ------------------------------------ */}
+        <MenuItem onClick={run(onNewTab)}>
+          <ListItemIcon><AddIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>New tab</ListItemText>
+          <Typography variant="caption" sx={{ color: 'text.secondary', ml: 2 }}>Ctrl+T</Typography>
+        </MenuItem>
+        <MenuItem onClick={run(() => api?.window?.newWindow?.())}>
+          <ListItemIcon><LaunchIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>New window</ListItemText>
+          <Typography variant="caption" sx={{ color: 'text.secondary', ml: 2 }}>Ctrl+N</Typography>
+        </MenuItem>
+        <MenuItem onClick={run(() => onToggleVpnPanel?.())}>
+          <ListItemIcon><ShieldIcon fontSize="small" sx={{ color: vpnOn ? '#34d399' : undefined }} /></ListItemIcon>
+          <ListItemText>{vpnOn ? `VPN — ${activeServerLabel || 'connected'}` : 'VPN — configure'}</ListItemText>
+        </MenuItem>
+
         <Divider />
-        <MenuItem onClick={() => { setMenuAnchor(null); onHome(); }}>
+
+        {/* --- Library: history / downloads / passwords / bookmarks ---- */}
+        <MenuItem onClick={() => goTo('smartbrowser://history')}>
+          <ListItemIcon><HistoryIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>History</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => goTo('smartbrowser://downloads')}>
+          <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Downloads</ListItemText>
+          <Typography variant="caption" sx={{ color: 'text.secondary', ml: 2 }}>Ctrl+J</Typography>
+        </MenuItem>
+        <MenuItem onClick={() => goTo('smartbrowser://passwords')}>
+          <ListItemIcon><KeyIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Passwords and autofill</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={run(() => onToggleNotesPanel?.())}>
+          <ListItemIcon><StickyNote2Icon fontSize="small" /></ListItemIcon>
+          <ListItemText>Notes</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => goTo('smartbrowser://extensions')}>
+          <ListItemIcon><ExtensionIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Extensions</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={clearAllData}>
+          <ListItemIcon><DeleteSweepIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Delete browsing data…</ListItemText>
+        </MenuItem>
+
+        <Divider />
+
+        {/* --- Page actions: zoom / find / save / print ---------------- */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          px: 2, py: 0.75, gap: 1 }}>
+          <Typography variant="body2" sx={{ flex: 1 }}>Zoom</Typography>
+          <IconButton size="small" onClick={zoom('out')}><ZoomOutIcon fontSize="small" /></IconButton>
+          <IconButton size="small" onClick={zoom('reset')}><ZoomOutMapIcon fontSize="small" /></IconButton>
+          <IconButton size="small" onClick={zoom('in')}><ZoomInIcon fontSize="small" /></IconButton>
+        </Box>
+        <MenuItem onClick={run(() => {
+          const q = window.prompt('Find in page');
+          if (q != null) api?.browser?.find?.(q);
+        })}>
+          <ListItemIcon><FindInPageIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Find in page…</ListItemText>
+          <Typography variant="caption" sx={{ color: 'text.secondary', ml: 2 }}>Ctrl+F</Typography>
+        </MenuItem>
+        <MenuItem onClick={run(() => api?.browser?.savePage?.())}>
+          <ListItemIcon><SaveAltIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Save page as…</ListItemText>
+          <Typography variant="caption" sx={{ color: 'text.secondary', ml: 2 }}>Ctrl+S</Typography>
+        </MenuItem>
+        <MenuItem onClick={run(() => api?.browser?.print?.())}>
+          <ListItemIcon><PrintIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Print…</ListItemText>
+          <Typography variant="caption" sx={{ color: 'text.secondary', ml: 2 }}>Ctrl+P</Typography>
+        </MenuItem>
+
+        <Divider />
+
+        {/* --- Settings + navigation footers --------------------------- */}
+        <MenuItem onClick={() => goTo('smartbrowser://settings')}>
+          <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Settings</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={run(onHome)}>
           <ListItemIcon><HomeIcon fontSize="small" /></ListItemIcon>
           <ListItemText>New tab page</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => goTo('https://github.com/SaiRithvik-0408/SMART-BROWSER')}>
           <ListItemIcon><OpenInNewIcon fontSize="small" /></ListItemIcon>
           <ListItemText>SmartBrowser on GitHub</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={run(() => window.close())}>
+          <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Exit</ListItemText>
         </MenuItem>
       </Menu>
     </Paper>
