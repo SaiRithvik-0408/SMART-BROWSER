@@ -8,6 +8,41 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.40] - 2026-05-29
+
+### Added — One-click widget resize via right-click menu
+
+The user reported they couldn't easily halve the height of the brand
+"SB" tile — the south resize handle on small widgets was too fiddly to
+grab. Added explicit resize actions to the widget right-click context
+menu so size changes don't require precise mouse work:
+
+- **½ Height** — `h → ceil(h / 2)`, clamped to the widget's `minSize.h`.
+- **½ Width**  — `w → ceil(w / 2)`, clamped to `minSize.w` and the
+  widget's current `x`.
+- **2× Height** — doubles `h` (no upper cap).
+- **2× Width**  — doubles `w`, clamped to the active grid column count.
+- **Reset size** — restores the catalog's `defaultSize`.
+
+Each menu row shows the live `before→after` preview (e.g. `4→2`) and
+the Half-Height / Half-Width rows are disabled when already at the
+minimum so the menu doesn't lie about what's possible.
+
+### Changed — Resize handles are now full-opacity and bigger
+
+`opacity: 0.6 → 0.9`, corner handles `12×12 → 14×14`, edge pills
+`6×32 → 8×40` with a stronger red tint (`0.7` alpha). Easier to
+spot and grab on tiny widgets — the brand tile in particular was hard
+to resize because the handle pills were the same width as the widget
+itself.
+
+Files:
+- `frontend/src/components/Widgets.jsx` — new `resizeWidget(id, mut)`
+  helper plus the five preset wrappers, threaded through `WidgetFrame`
+  as `onHalfHeight` / `onHalfWidth` / `onDoubleHeight` /
+  `onDoubleWidth` / `onResetSize`; expanded right-click `Menu` and
+  beefed-up handle CSS.
+
 ## [v1.0.39] - 2026-05-29
 
 ### Fixed — Settings/Notes/etc. no longer blank the page, side-panel like Brave

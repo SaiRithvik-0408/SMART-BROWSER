@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Box, Typography, IconButton, Menu, MenuItem, Button,
+  Box, Typography, IconButton, Menu, MenuItem, Button, Divider,
   InputBase, Select, TextField, Tooltip, Popover,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -464,6 +464,26 @@ export default function Widgets({ onOpen }) {
     };
     return [...prev, copy];
   });
+  // Direct programmatic resize — used by the right-click "Half/Double height
+  // / width / Reset size" menu actions so the user doesn't have to find and
+  // drag a small handle. Clamps to grid bounds and the widget's own minSize.
+  const resizeWidget = (id, mut) => setWidgets((prev) => prev.map((w) => {
+    if (w.id !== id) return w;
+    const meta = catalogFor(w.type);
+    const cur = w.layout || { x: 0, y: 0, ...meta.defaultSize };
+    const next = mut(cur, meta) || cur;
+    const minW = meta.minSize?.w || 1;
+    const minH = meta.minSize?.h || 1;
+    const clampedW = Math.max(minW, Math.min(gridCols, Math.round(next.w)));
+    const clampedH = Math.max(minH, Math.round(next.h));
+    const clampedX = Math.max(0, Math.min(gridCols - clampedW, Math.round(next.x ?? cur.x)));
+    return { ...w, layout: { ...cur, x: clampedX, w: clampedW, h: clampedH } };
+  }));
+  const halfHeight   = (id) => resizeWidget(id, (l, m) => ({ ...l, h: Math.max(m.minSize?.h || 1, Math.ceil(l.h / 2)) }));
+  const halfWidth    = (id) => resizeWidget(id, (l, m) => ({ ...l, w: Math.max(m.minSize?.w || 1, Math.ceil(l.w / 2)) }));
+  const doubleHeight = (id) => resizeWidget(id, (l)    => ({ ...l, h: l.h * 2 }));
+  const doubleWidth  = (id) => resizeWidget(id, (l)    => ({ ...l, w: l.w * 2 }));
+  const resetSize    = (id) => resizeWidget(id, (_l, m) => ({ ..._l, w: m.defaultSize.w, h: m.defaultSize.h }));
   const updateConfig = (id, patch) =>
     setWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, config: { ...w.config, ...patch } } : w)));
 
@@ -550,37 +570,39 @@ export default function Widgets({ onOpen }) {
         },
         '& .react-grid-item > .react-resizable-handle': {
           backgroundImage: 'none',
-          // Was 0.35 then 1 on hover — but corner handles were so subtle the
-          // user couldn't tell every side was grabbable. Always-on at a
-          // moderate opacity, with a strong hover glow.
-          opacity: 0.6,
+          // Was 0.35 → 0.6, now full-opacity-always. User reported they
+          // couldn't easily resize tiny widgets (the brand "SB" tile) —
+          // bumping visibility removes the guessing about where to grab.
+          opacity: 0.9,
           transition: 'opacity 120ms ease, background 120ms ease, transform 120ms ease',
           pointerEvents: 'auto', zIndex: 5,
         },
-        // Corners: small filled squares anchored to the corners.
+        // Corners: small filled squares anchored to the corners. Sized up
+        // from 12 to 14 so they're easier to grab on small widgets.
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-se,\
            & .react-grid-item > .react-resizable-handle.react-resizable-handle-sw,\
            & .react-grid-item > .react-resizable-handle.react-resizable-handle-ne,\
            & .react-grid-item > .react-resizable-handle.react-resizable-handle-nw': {
-          width: 12, height: 12, background: 'rgba(214,69,61,0.55)',
-          borderRadius: 2, border: '1px solid rgba(255,255,255,0.25)',
+          width: 14, height: 14, background: 'rgba(214,69,61,0.75)',
+          borderRadius: 2, border: '1px solid rgba(255,255,255,0.35)',
         },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-se': { right: 2, bottom: 2, cursor: 'nwse-resize' },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-sw': { left:  2, bottom: 2, cursor: 'nesw-resize' },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-ne': { right: 2, top:    2, cursor: 'nesw-resize' },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-nw': { left:  2, top:    2, cursor: 'nwse-resize' },
-        // Edges: thin pills centered along each side.
+        // Edges: thin pills centered along each side. Sized up from
+        // 6×32 to 8×40 for the same easier-to-grab reason as corners.
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-e,\
            & .react-grid-item > .react-resizable-handle.react-resizable-handle-w': {
-          width: 6, height: 32, top: '50%', transform: 'translateY(-50%)',
-          background: 'rgba(214,69,61,0.45)', borderRadius: 3,
+          width: 8, height: 40, top: '50%', transform: 'translateY(-50%)',
+          background: 'rgba(214,69,61,0.7)', borderRadius: 3,
         },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-e': { right: 0, cursor: 'ew-resize' },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-w': { left:  0, cursor: 'ew-resize' },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-s,\
            & .react-grid-item > .react-resizable-handle.react-resizable-handle-n': {
-          width: 32, height: 6, left: '50%', transform: 'translateX(-50%)',
-          background: 'rgba(214,69,61,0.45)', borderRadius: 3,
+          width: 40, height: 8, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(214,69,61,0.7)', borderRadius: 3,
         },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-s': { bottom: 0, cursor: 'ns-resize' },
         '& .react-grid-item > .react-resizable-handle.react-resizable-handle-n': { top:    0, cursor: 'ns-resize' },
@@ -614,6 +636,11 @@ export default function Widgets({ onOpen }) {
                   widget={w}
                   onRemove={() => removeWidget(w.id)}
                   onDuplicate={() => duplicateWidget(w.id)}
+                  onHalfHeight={()   => halfHeight(w.id)}
+                  onHalfWidth={()    => halfWidth(w.id)}
+                  onDoubleHeight={() => doubleHeight(w.id)}
+                  onDoubleWidth={()  => doubleWidth(w.id)}
+                  onResetSize={()    => resetSize(w.id)}
                   onConfig={(patch) => updateConfig(w.id, patch)}
                   onOpen={onOpen}
                 />
@@ -626,7 +653,10 @@ export default function Widgets({ onOpen }) {
   );
 }
 
-function WidgetFrame({ widget, onRemove, onDuplicate, onConfig, onOpen }) {
+function WidgetFrame({
+  widget, onRemove, onDuplicate, onConfig, onOpen,
+  onHalfHeight, onHalfWidth, onDoubleHeight, onDoubleWidth, onResetSize,
+}) {
   const meta = catalogFor(widget.type);
   // Brand + header widgets are "chromeless" — they own their entire frame
   // and don't show our standard title bar. The frame still has to host
@@ -741,23 +771,83 @@ function WidgetFrame({ widget, onRemove, onDuplicate, onConfig, onOpen }) {
       </Box>
 
       {/* Right-click menu — Duplicate clones the widget directly below the
-          original, Remove only renders when the catalog entry allows it
-          (e.g. brand stays put). */}
+          original; the Resize submenu lets the user halve/double the
+          widget without trying to grab the small drag handles (the user
+          reported they couldn't easily shrink the brand "SB" tile);
+          Remove only renders when the catalog entry allows it. */}
       <Menu
         open={!!ctxPos}
         onClose={closeCtx}
         anchorReference="anchorPosition"
         anchorPosition={ctxPos || undefined}
-        slotProps={{ paper: { sx: { minWidth: 160, background: '#0a0e22',
+        slotProps={{ paper: { sx: { minWidth: 180, background: '#0a0e22',
           border: `1px solid ${LINE}`, borderRadius: 1.5 } } }}
       >
         <MenuItem onClick={ctxDuplicate} sx={{ fontFamily: MONO, fontSize: 12, gap: 1 }}>
           Duplicate
         </MenuItem>
+        <Divider sx={{ my: 0.5, borderColor: 'rgba(255,255,255,0.06)' }} />
+        <MenuItem
+          onClick={() => { closeCtx(); onHalfHeight?.(); }}
+          sx={{ fontFamily: MONO, fontSize: 12, gap: 1 }}
+          // Brand widget's catalog minH is 1, so halving from any height
+          // always lands somewhere valid. Disable only when already at 1.
+          disabled={(widget.layout?.h || 1) <= 1}
+        >
+          ½ Height
+          <Box sx={{ flex: 1 }} />
+          <Typography sx={{ fontSize: 10, color: '#7a82a8' }}>
+            {widget.layout?.h}→{Math.max(1, Math.ceil((widget.layout?.h || 1) / 2))}
+          </Typography>
+        </MenuItem>
+        <MenuItem
+          onClick={() => { closeCtx(); onHalfWidth?.(); }}
+          sx={{ fontFamily: MONO, fontSize: 12, gap: 1 }}
+          disabled={(widget.layout?.w || 1) <= 1}
+        >
+          ½ Width
+          <Box sx={{ flex: 1 }} />
+          <Typography sx={{ fontSize: 10, color: '#7a82a8' }}>
+            {widget.layout?.w}→{Math.max(1, Math.ceil((widget.layout?.w || 1) / 2))}
+          </Typography>
+        </MenuItem>
+        <MenuItem
+          onClick={() => { closeCtx(); onDoubleHeight?.(); }}
+          sx={{ fontFamily: MONO, fontSize: 12, gap: 1 }}
+        >
+          2× Height
+          <Box sx={{ flex: 1 }} />
+          <Typography sx={{ fontSize: 10, color: '#7a82a8' }}>
+            {widget.layout?.h}→{(widget.layout?.h || 1) * 2}
+          </Typography>
+        </MenuItem>
+        <MenuItem
+          onClick={() => { closeCtx(); onDoubleWidth?.(); }}
+          sx={{ fontFamily: MONO, fontSize: 12, gap: 1 }}
+        >
+          2× Width
+          <Box sx={{ flex: 1 }} />
+          <Typography sx={{ fontSize: 10, color: '#7a82a8' }}>
+            {widget.layout?.w}→{(widget.layout?.w || 1) * 2}
+          </Typography>
+        </MenuItem>
+        <MenuItem
+          onClick={() => { closeCtx(); onResetSize?.(); }}
+          sx={{ fontFamily: MONO, fontSize: 12, gap: 1 }}
+        >
+          Reset size
+          <Box sx={{ flex: 1 }} />
+          <Typography sx={{ fontSize: 10, color: '#7a82a8' }}>
+            {meta?.defaultSize?.w}×{meta?.defaultSize?.h}
+          </Typography>
+        </MenuItem>
         {meta?.removable !== false && (
-          <MenuItem onClick={ctxRemove} sx={{ fontFamily: MONO, fontSize: 12, gap: 1, color: ACCENT }}>
-            Remove
-          </MenuItem>
+          <>
+            <Divider sx={{ my: 0.5, borderColor: 'rgba(255,255,255,0.06)' }} />
+            <MenuItem onClick={ctxRemove} sx={{ fontFamily: MONO, fontSize: 12, gap: 1, color: ACCENT }}>
+              Remove
+            </MenuItem>
+          </>
         )}
       </Menu>
     </Box>
