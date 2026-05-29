@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
   Box, Paper, Typography, Stack, Switch, FormControlLabel, MenuItem,
-  Select, Chip, Divider, Button, CircularProgress, Alert,
+  Select, Chip, Divider, Button, CircularProgress, Alert, IconButton,
 } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import ShieldIcon from '@mui/icons-material/Shield';
 import PublicIcon from '@mui/icons-material/Public';
 import BoltIcon from '@mui/icons-material/Bolt';
@@ -159,6 +160,9 @@ export default function VpnPanel({ open, onClose, docked = false }) {
           color={trulyMasked ? 'success' : (userPressedConnect ? 'warning' : 'default')}
           label={trulyMasked ? 'MASKED' : userPressedConnect ? 'NOT MASKING' : 'OFF'}
         />
+        <IconButton size="small" onClick={onClose} sx={{ color: '#9aa3c7' }}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
       </Stack>
 
       <FormControlLabel

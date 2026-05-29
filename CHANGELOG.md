@@ -8,6 +8,27 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.43] - 2026-05-29
+
+### Changed — Tighter top-right popup, transparent backdrop, X on VPN
+
+Polish pass on the overlay popups introduced in v1.0.42:
+
+- Popup card is now pinned to the **top-right** (`top:96, right:16`) with a
+  `max-height` instead of stretching the full window height, so it reads as
+  a compact floating panel rather than a side sheet.
+- Trimmed default widths (notes 720→640, vpn 400→360, others 480→420) so
+  the panel takes less of the page on smaller windows.
+- Backdrop is now fully **transparent** — the page underneath shows
+  through unmodified. Clicking anywhere outside the card still closes it.
+- The native overlay view now covers the **entire window** (not just the
+  content area), so the panel can sit visually above any chrome region.
+- VPN panel header gained an explicit **X close button** next to the
+  status chip for parity with the other panels.
+
+Files: `frontend/src/App.jsx`, `frontend/src/PanelHost.jsx`,
+`frontend/src/components/VpnPanel.jsx`.
+
 ## [v1.0.42] - 2026-05-29
 
 ### Fixed — Panels are now true popup windows (no more clipping / broken UI)

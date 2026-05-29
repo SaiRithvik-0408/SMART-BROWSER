@@ -33,10 +33,10 @@ const INTERNAL_TITLES = {
 // Popup width per panel. Notes needs room for the list + editor; the VPN
 // panel is narrow; the rest sit comfortably around 480.
 const PANEL_WIDTH = {
-  notes: 720,
-  vpn:   400,
+  notes: 640,
+  vpn:   360,
 };
-const widthFor = (p) => PANEL_WIDTH[p] || 480;
+const widthFor = (p) => PANEL_WIDTH[p] || 420;
 
 export default function PanelHost() {
   const [panel, setPanel]     = useState(null);   // 'notes' | 'vpn' | 'settings' | ...
@@ -91,10 +91,11 @@ export default function PanelHost() {
       onMouseDown={(e) => e.stopPropagation()}
       sx={{
         position: 'absolute',
-        top: 12, bottom: 12, right: 12,
-        width: `min(${widthFor(panel)}px, calc(100vw - 24px))`,
+        top: 96, right: 16, bottom: 'auto',
+        width: `min(${widthFor(panel)}px, calc(100vw - 32px))`,
+        maxHeight: 'calc(100vh - 112px)',
         display: 'flex', flexDirection: 'column',
-        borderRadius: 2.5, overflow: 'hidden',
+        borderRadius: 3, overflow: 'hidden',
         background: 'rgba(10,14,34,0.98)',
         border: '1px solid rgba(255,255,255,0.10)',
         boxShadow: '0 24px 80px rgba(0,0,0,0.55)',
@@ -139,8 +140,7 @@ export default function PanelHost() {
       onMouseDown={close}                /* click anywhere on the backdrop closes */
       sx={{
         position: 'fixed', inset: 0,
-        background: 'rgba(3,5,12,0.55)',
-        backdropFilter: 'blur(1.5px)',
+        background: 'transparent',
       }}
     >
       {card}

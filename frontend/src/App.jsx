@@ -240,10 +240,7 @@ export default function App() {
   // it, so the page underneath is never resized — it just shows through the
   // backdrop like a modal. We only need the content area's bounding box.
   const computePanelRect = () => {
-    const el = contentRef.current;
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
+    return { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
   };
 
   // Drive the native overlay whenever the logical panel changes.
