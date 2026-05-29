@@ -8,6 +8,41 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.44] - 2026-05-29
+
+### Added — Hamburger menu is now a docked panel with back-navigation
+
+The browser hamburger menu was a `<Menu>` popover hosted inside `TopBar`,
+which meant it sat in a totally separate render surface from the
+Notes/VPN/Settings panels and couldn't share the floating-popup chrome. It
+is now a first-class overlay panel, like the others:
+
+- **New `MenuPanel.jsx`** — replaces the in-`TopBar` `<Menu>` with a
+  scrollable list (new tab, new window, VPN, History, Downloads,
+  Passwords, Notes, Extensions, zoom controls, find / save / print,
+  Settings, Home, Exit). Hosted by `PanelHost` in the floating overlay
+  card so it visually matches every other panel and obeys the same
+  click-outside / Esc close rules.
+- **Panel history + back button** — the overlay now tracks a panel-history
+  stack. Each docked surface (Menu, Notes, VPN, internal pages) gets a
+  back-arrow that returns to the previous panel (so e.g. Menu → Settings
+  → Back returns to Menu without closing the overlay). Implemented via a
+  new `overlay:change-panel` IPC plus `lastOverlayBounds` caching so the
+  popup's screen geometry survives a re-stack.
+- **Fixed-height popups** — added `PANEL_HEIGHT` so each panel renders at
+  a sensible size (menu 520, vpn 520, notes 600, others 580) instead of
+  always stretching to the max-available height. Trimmed widths (menu
+  280) keep the card compact.
+- `TopBar` lost ~219 lines of inline menu code; opening the menu now just
+  toggles `menuPanelOpen` in `App.jsx`.
+
+Files: `frontend/src/components/MenuPanel.jsx` (new),
+`frontend/src/PanelHost.jsx`, `frontend/src/App.jsx`,
+`frontend/src/components/TopBar.jsx`,
+`frontend/src/components/NotesPanel.jsx`,
+`frontend/src/components/VpnPanel.jsx`,
+`electron/main.js`, `electron/preload.js`.
+
 ## [v1.0.43] - 2026-05-29
 
 ### Changed — Tighter top-right popup, transparent backdrop, X on VPN

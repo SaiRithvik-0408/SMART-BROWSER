@@ -462,6 +462,7 @@ let overlayView = null;
 let overlayVisible = false;
 let overlayReady = false;
 let pendingOverlayShow = null;     // {panel, payload} queued until renderer is ready
+let lastOverlayBounds = { x: 0, y: 0, width: 0, height: 0 };
 
 function rendererUrl(query) {
   const base = isDev
@@ -504,16 +505,23 @@ function ensureOverlayView() {
 function bringOverlayToFront() {
   if (!overlayView) return;
   // Re-adding an existing child view moves it to the top of the z-order.
-  try { mainWindow.contentView.addChildView(overlayView); } catch {}
+  // We remove it first then re-add it to guarantee it sits above active tab views.
+  try {
+    mainWindow.contentView.removeChildView(overlayView);
+    mainWindow.contentView.addChildView(overlayView);
+    if (lastOverlayBounds && lastOverlayBounds.width > 0) {
+      overlayView.setBounds(lastOverlayBounds);
+    }
+  } catch {}
 }
 
 function showOverlay(rect, panel, payload) {
   ensureOverlayView();
   if (rect && rect.width > 0 && rect.height > 0) {
-    overlayView.setBounds({
+    lastOverlayBounds = {
       x: Math.round(rect.x), y: Math.round(rect.y),
       width: Math.round(rect.width), height: Math.round(rect.height),
-    });
+    };
   }
   bringOverlayToFront();
   overlayView.setVisible(true);
@@ -715,12 +723,18 @@ ipcMain.handle('tab:open-devtools', (_e, tabId) => {
 // pixel-accurate). The overlay view floats over the page without resizing it.
 ipcMain.handle('overlay:open', (_e, { rect, panel, payload }) => showOverlay(rect, panel, payload));
 ipcMain.handle('overlay:set-bounds', (_e, rect) => {
-  if (overlayView && overlayVisible && rect && rect.width > 0 && rect.height > 0) {
-    overlayView.setBounds({
+  if (rect && rect.width > 0 && rect.height > 0) {
+    lastOverlayBounds = {
       x: Math.round(rect.x), y: Math.round(rect.y),
       width: Math.round(rect.width), height: Math.round(rect.height),
-    });
+    };
+    if (overlayView && overlayVisible) {
+      overlayView.setBounds(lastOverlayBounds);
+    }
   }
+});
+ipcMain.handle('overlay:change-panel', (_e, panelName) => {
+  broadcast('overlay:panel-changed', panelName);
 });
 // close: fired by the overlay renderer (X button / Esc / clicked the page).
 ipcMain.handle('overlay:close', () => hideOverlay(true));

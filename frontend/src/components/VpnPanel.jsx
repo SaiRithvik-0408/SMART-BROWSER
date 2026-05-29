@@ -4,13 +4,14 @@ import {
   Select, Chip, Divider, Button, CircularProgress, Alert, IconButton,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ShieldIcon from '@mui/icons-material/Shield';
 import PublicIcon from '@mui/icons-material/Public';
 import BoltIcon from '@mui/icons-material/Bolt';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { VpnApi } from '../api/client';
 
-export default function VpnPanel({ open, onClose, docked = false }) {
+export default function VpnPanel({ open, onClose, onBack, docked = false }) {
   const [status, setStatus] = useState({});
   const [servers, setServers] = useState([]);
   const [selected, setSelected] = useState('');
@@ -152,6 +153,11 @@ export default function VpnPanel({ open, onClose, docked = false }) {
       }}
     >
       <Stack direction="row" alignItems="center" spacing={1.5} mb={1.5}>
+        {docked && (
+          <IconButton size="small" onClick={onBack || onClose} sx={{ color: '#9aa3c7', mr: -0.5 }}>
+            <ArrowBackIcon fontSize="small" />
+          </IconButton>
+        )}
         <ShieldIcon color={trulyMasked ? 'success' : (userPressedConnect ? 'warning' : 'primary')} />
         <Typography variant="h6">SmartShield VPN</Typography>
         <Box flex={1} />

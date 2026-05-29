@@ -90,6 +90,7 @@ export default function App() {
   const [vpnStatus, setVpnStatus] = useState({ enabled: false, activeServer: null });
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
   const [notesInitialId, setNotesInitialId] = useState(null);
+  const [menuPanelOpen, setMenuPanelOpen] = useState(false);
   // The "page-as-popup" overlay. When non-null, an internal page (settings,
   // history, downloads, extensions, passwords) is rendered as a floating
   // modal ON TOP of whatever the user was viewing, and the native
@@ -230,10 +231,11 @@ export default function App() {
   const overlayApi = inElectron ? api?.overlay : null;
   const contentRef = React.useRef(null);
 
-  // Which single panel is logically open (priority: internal > notes > vpn).
+  // Which single panel is logically open (priority: internal > notes > vpn > menu).
   const openPanelName = internalOverlay ? internalOverlay
     : notesPanelOpen ? 'notes'
     : vpnPanelOpen ? 'vpn'
+    : menuPanelOpen ? 'menu'
     : null;
   // The overlay view covers the WHOLE content area (below the tab strip /
   // omnibar). PanelHost paints a dim backdrop + a floating popup card inside
@@ -273,7 +275,22 @@ export default function App() {
   useEffect(() => {
     if (!overlayApi?.onClosed) return;
     return overlayApi.onClosed(() => {
-      setInternalOverlay(null); setNotesPanelOpen(false); setVpnPanelOpen(false);
+      setInternalOverlay(null); setNotesPanelOpen(false); setVpnPanelOpen(false); setMenuPanelOpen(false);
+    });
+  }, []);
+
+  // Listen for panel changes from the overlay view to keep React shell state in sync.
+  useEffect(() => {
+    if (!overlayApi?.onPanelChanged) return;
+    return overlayApi.onPanelChanged((name) => {
+      setMenuPanelOpen(name === 'menu');
+      setVpnPanelOpen(name === 'vpn');
+      setNotesPanelOpen(name === 'notes');
+      if (['settings', 'history', 'downloads', 'passwords', 'extensions'].includes(name)) {
+        setInternalOverlay(name);
+      } else {
+        setInternalOverlay(null);
+      }
     });
   }, []);
 
@@ -282,7 +299,7 @@ export default function App() {
   useEffect(() => {
     if (!overlayApi?.onNavigate) return;
     return overlayApi.onNavigate((url) => {
-      setInternalOverlay(null); setNotesPanelOpen(false); setVpnPanelOpen(false);
+      setInternalOverlay(null); setNotesPanelOpen(false); setVpnPanelOpen(false); setMenuPanelOpen(false);
       if (url) navigateRef.current?.(url);
     });
   }, []);
@@ -308,10 +325,11 @@ export default function App() {
 
   // Open one of the internal pages. Opening any panel closes the others so
   // only one is ever logically active.
-  const openInternal = (name) => { setNotesPanelOpen(false); setVpnPanelOpen(false); setInternalOverlay(name); };
+  const openInternal = (name) => { setNotesPanelOpen(false); setVpnPanelOpen(false); setMenuPanelOpen(false); setInternalOverlay(name); };
   const closeInternal = () => setInternalOverlay(null);
-  const toggleNotes = () => { setVpnPanelOpen(false); setInternalOverlay(null); setNotesPanelOpen(v => !v); };
-  const toggleVpn   = () => { setNotesPanelOpen(false); setInternalOverlay(null); setVpnPanelOpen(v => !v); };
+  const toggleNotes = () => { setVpnPanelOpen(false); setInternalOverlay(null); setMenuPanelOpen(false); setNotesPanelOpen(v => !v); };
+  const toggleVpn   = () => { setNotesPanelOpen(false); setInternalOverlay(null); setMenuPanelOpen(false); setVpnPanelOpen(v => !v); };
+  const toggleMenu  = () => { setNotesPanelOpen(false); setVpnPanelOpen(false); setInternalOverlay(null); setMenuPanelOpen(v => !v); };
 
   // Helper for the BrowserView click-into-tab callback: dismiss any open
   // overlay first, so clicking the page area always returns to it.
@@ -319,6 +337,7 @@ export default function App() {
     if (internalOverlay) setInternalOverlay(null);
     if (notesPanelOpen)  setNotesPanelOpen(false);
     if (vpnPanelOpen)    setVpnPanelOpen(false);
+    if (menuPanelOpen)   setMenuPanelOpen(false);
   };
 
   const updateActive = (mut) => {
@@ -524,6 +543,7 @@ export default function App() {
           isHomeActive={!active || active.url === 'home'}
           homeZoom={homeZoom}
           onHomeZoom={adjustHomeZoom}
+          onOpenMenu={toggleMenu}
         />
         <UpdateBanner />
         {/* Content area. The native overlay panel floats ON TOP of this

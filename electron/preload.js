@@ -173,16 +173,22 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
       ipcRenderer.on('overlay:navigate', h);
       return () => ipcRenderer.removeListener('overlay:navigate', h);
     },
+    onPanelChanged: (cb) => {
+      const h = (_e, panelName) => cb?.(panelName);
+      ipcRenderer.on('overlay:panel-changed', h);
+      return () => ipcRenderer.removeListener('overlay:panel-changed', h);
+    },
     // --- called by the OVERLAY renderer ---
-    close:     ()  => ipcRenderer.invoke('overlay:close'),
-    ready:     ()  => ipcRenderer.invoke('overlay:ready'),
-    navigate:  (url) => ipcRenderer.invoke('overlay:navigate', url),
-    onShow:    (cb) => {
+    close:       ()  => ipcRenderer.invoke('overlay:close'),
+    ready:       ()  => ipcRenderer.invoke('overlay:ready'),
+    navigate:    (url) => ipcRenderer.invoke('overlay:navigate', url),
+    changePanel: (panelName) => ipcRenderer.invoke('overlay:change-panel', panelName),
+    onShow:      (cb) => {
       const h = (_e, msg) => cb?.(msg);
       ipcRenderer.on('overlay:show', h);
       return () => ipcRenderer.removeListener('overlay:show', h);
     },
-    onHide:    (cb) => {
+    onHide:      (cb) => {
       const h = () => cb?.();
       ipcRenderer.on('overlay:hide', h);
       return () => ipcRenderer.removeListener('overlay:hide', h);

@@ -8,6 +8,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ImageIcon from '@mui/icons-material/Image';
 import CloseIcon from '@mui/icons-material/Close';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SearchIcon from '@mui/icons-material/Search';
 import SaveIcon from '@mui/icons-material/Save';
 
@@ -121,7 +122,7 @@ function insertNodeIntoEditor(editor, node, savedRange) {
 
 // --- component --------------------------------------------------------------
 
-export default function NotesPanel({ open, onClose, initialNoteId, docked = false }) {
+export default function NotesPanel({ open, onClose, onBack, initialNoteId, docked = false }) {
   const [notes, setNotes] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [query, setQuery] = useState('');
@@ -390,6 +391,11 @@ export default function NotesPanel({ open, onClose, initialNoteId, docked = fals
       >
         <Stack direction="row" alignItems="center" spacing={1.5} sx={{ px: 2.5, py: 1.5,
             borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {docked && (
+            <IconButton size="small" onClick={onBack || onClose} sx={{ color: '#9aa3c7', mr: -0.5 }}>
+              <ArrowBackIcon fontSize="small" />
+            </IconButton>
+          )}
           <StickyNote2Icon sx={{ color: '#fbbf24' }} />
           <Typography variant="h6" sx={{ flex: 1 }}>Notes</Typography>
           <Tooltip title="New note">
