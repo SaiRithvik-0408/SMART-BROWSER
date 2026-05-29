@@ -159,3 +159,29 @@ export function setBackgroundOpacity(value) {
   emit(BG_CHANGED_EVENT);
   return clamped;
 }
+
+// Animated 3D backdrop (globe + starfield). Users can dim it down or turn it
+// off entirely so a custom image/video background reads clearly underneath.
+const ANIM_ON_KEY  = 'sb.background.anim.enabled.v1';
+const ANIM_OPA_KEY = 'sb.background.anim.opacity.v1';
+
+export function loadAnimationEnabled() {
+  const v = window.localStorage.getItem(ANIM_ON_KEY);
+  return v === null ? true : v === '1';
+}
+export function setAnimationEnabled(on) {
+  try { window.localStorage.setItem(ANIM_ON_KEY, on ? '1' : '0'); } catch {}
+  emit(BG_CHANGED_EVENT);
+  return !!on;
+}
+export function loadAnimationOpacity() {
+  const n = Number(window.localStorage.getItem(ANIM_OPA_KEY));
+  if (!Number.isFinite(n) || n <= 0) return 0.5;
+  return Math.max(0.05, Math.min(1, n));
+}
+export function setAnimationOpacity(value) {
+  const clamped = Math.max(0.05, Math.min(1, Number(value) || 0.5));
+  try { window.localStorage.setItem(ANIM_OPA_KEY, String(clamped)); } catch {}
+  emit(BG_CHANGED_EVENT);
+  return clamped;
+}

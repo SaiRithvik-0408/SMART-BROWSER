@@ -13,14 +13,13 @@ const api = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
 // =========================================================================
 // PanelHost — the renderer for the floating overlay view
-// (index.html?overlay=1). It fills its native view (a narrow strip docked
-// on the right edge of the window, positioned by the main process) and
-// renders whichever panel the main window asked for.
+// (index.html?overlay=1). The overlay view is TRANSPARENT and covers the
+// whole content area, floating ABOVE the page view. PanelHost paints a dim
+// backdrop (clicking it closes the panel — "click anywhere outside") plus a
+// floating popup card holding whichever panel the main window asked for.
 //
-// The overlay view floats ABOVE the page view, so the website underneath
-// stays full-size and the visible-left portion remains interactive. This
-// is what makes the panels behave like Brave's side panel instead of
-// reflowing the page.
+// The website/home page underneath is never resized or replaced — it just
+// shows through the dim backdrop, exactly like a modal popup.
 // =========================================================================
 
 const INTERNAL_TITLES = {
@@ -30,6 +29,14 @@ const INTERNAL_TITLES = {
   passwords:  'Passwords',
   extensions: 'Extensions',
 };
+
+// Popup width per panel. Notes needs room for the list + editor; the VPN
+// panel is narrow; the rest sit comfortably around 480.
+const PANEL_WIDTH = {
+  notes: 720,
+  vpn:   400,
+};
+const widthFor = (p) => PANEL_WIDTH[p] || 480;
 
 export default function PanelHost() {
   const [panel, setPanel]     = useState(null);   // 'notes' | 'vpn' | 'settings' | ...
@@ -67,53 +74,76 @@ export default function PanelHost() {
   }, [panel]);
 
   if (!panel) {
-    // Nothing to show — render a transparent placeholder. The native view
-    // is hidden by main in this state anyway.
+    // Nothing to show — fully transparent (the native view is hidden by main
+    // in this state anyway).
     return <Box sx={{ width: '100vw', height: '100vh', background: 'transparent' }} />;
   }
 
-  // Notes / VPN render their own chrome (header, close button) in docked
-  // mode, so host them directly.
-  if (panel === 'notes') {
-    return (
-      <Box sx={{ width: '100vw', height: '100vh', position: 'relative', background: '#0a0e22' }}>
-        <NotesPanel open docked onClose={close} initialNoteId={payload?.initialNoteId ?? null} />
-      </Box>
-    );
-  }
-  if (panel === 'vpn') {
-    return (
-      <Box sx={{ width: '100vw', height: '100vh', position: 'relative', background: '#0a0e22' }}>
-        <VpnPanel open docked onClose={close} />
-      </Box>
-    );
-  }
+  const isSheet = panel === 'notes' || panel === 'vpn';
 
-  // Internal pages get a shared header bar + the page body.
-  return (
-    <Paper sx={{
-      width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column',
-      borderRadius: 0, overflow: 'hidden', background: 'rgba(8,9,14,0.98)',
-    }}>
-      <Box sx={{
-        display: 'flex', alignItems: 'center', gap: 1,
-        px: 2, py: 1.25, borderBottom: '1px solid rgba(255,255,255,0.08)',
-        flexShrink: 0,
-      }}>
-        <Typography sx={{ flex: 1, fontWeight: 600, color: '#e6e9f5' }}>
-          {INTERNAL_TITLES[panel] || panel}
-        </Typography>
-        <IconButton size="small" onClick={close} sx={{ color: '#9aa3c7' }}>
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </Box>
-      <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-        {panel === 'settings'   && <SettingsPage   onOpen={navigateAndClose} />}
-        {panel === 'history'    && <HistoryPage    onOpen={navigateAndClose} />}
-        {panel === 'downloads'  && <DownloadsPage  onOpen={navigateAndClose} />}
-        {panel === 'passwords'  && <PasswordsPage  onOpen={navigateAndClose} />}
-        {panel === 'extensions' && <ExtensionsPage onOpen={navigateAndClose} />}
-      </Box>
+  // The floating card. It's anchored to the right edge with a small margin so
+  // it reads as a Brave-style side popup, fills (almost) the full height, and
+  // can never be clipped by the window because its width is CSS-driven inside
+  // the full-width overlay view.
+  const card = (
+    <Paper
+      elevation={16}
+      onMouseDown={(e) => e.stopPropagation()}
+      sx={{
+        position: 'absolute',
+        top: 12, bottom: 12, right: 12,
+        width: `min(${widthFor(panel)}px, calc(100vw - 24px))`,
+        display: 'flex', flexDirection: 'column',
+        borderRadius: 2.5, overflow: 'hidden',
+        background: 'rgba(10,14,34,0.98)',
+        border: '1px solid rgba(255,255,255,0.10)',
+        boxShadow: '0 24px 80px rgba(0,0,0,0.55)',
+      }}
+    >
+      {isSheet ? (
+        // Notes / VPN render their own header + close button in docked mode.
+        <Box sx={{ position: 'relative', flex: 1, minHeight: 0 }}>
+          {panel === 'notes' && (
+            <NotesPanel open docked onClose={close} initialNoteId={payload?.initialNoteId ?? null} />
+          )}
+          {panel === 'vpn' && <VpnPanel open docked onClose={close} />}
+        </Box>
+      ) : (
+        <>
+          <Box sx={{
+            display: 'flex', alignItems: 'center', gap: 1,
+            px: 2, py: 1.25, borderBottom: '1px solid rgba(255,255,255,0.08)',
+            flexShrink: 0,
+          }}>
+            <Typography sx={{ flex: 1, fontWeight: 600, color: '#e6e9f5' }}>
+              {INTERNAL_TITLES[panel] || panel}
+            </Typography>
+            <IconButton size="small" onClick={close} sx={{ color: '#9aa3c7' }}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
+          <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+            {panel === 'settings'   && <SettingsPage   onOpen={navigateAndClose} />}
+            {panel === 'history'    && <HistoryPage    onOpen={navigateAndClose} />}
+            {panel === 'downloads'  && <DownloadsPage  onOpen={navigateAndClose} />}
+            {panel === 'passwords'  && <PasswordsPage  onOpen={navigateAndClose} />}
+            {panel === 'extensions' && <ExtensionsPage onOpen={navigateAndClose} />}
+          </Box>
+        </>
+      )}
     </Paper>
+  );
+
+  return (
+    <Box
+      onMouseDown={close}                /* click anywhere on the backdrop closes */
+      sx={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(3,5,12,0.55)',
+        backdropFilter: 'blur(1.5px)',
+      }}
+    >
+      {card}
+    </Box>
   );
 }

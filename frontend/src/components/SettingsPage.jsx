@@ -23,6 +23,8 @@ import {
   loadBackground, saveBackground, clearBackground, pickBackground,
   hasNativeBackground, onBackgroundChanged,
   loadBackgroundOpacity, setBackgroundOpacity,
+  loadAnimationEnabled, setAnimationEnabled,
+  loadAnimationOpacity, setAnimationOpacity,
 } from '../lib/background';
 import ImageIcon from '@mui/icons-material/Image';
 import VideocamIcon from '@mui/icons-material/Videocam';
@@ -60,6 +62,8 @@ function BackgroundPicker() {
   const [opacity, setOp]    = useState(() => loadBackgroundOpacity());
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState('');
+  const [animOn, setAnimOn] = useState(() => loadAnimationEnabled());
+  const [animOpacity, setAnimOp] = useState(() => loadAnimationOpacity());
   const fileRef = useRef(null);
 
   const native = hasNativeBackground();
@@ -174,6 +178,35 @@ function BackgroundPicker() {
       )}
 
       {error && <Alert severity="error" sx={{ fontSize: 12 }}>{error}</Alert>}
+
+      <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)', my: 0.5 }} />
+
+      <FormControlLabel
+        control={
+          <Switch
+            checked={animOn}
+            onChange={(e) => { setAnimOn(e.target.checked); setAnimationEnabled(e.target.checked); }}
+          />
+        }
+        label={<Typography sx={{ fontSize: 13, color: '#e6e9f5' }}>Background animation (globe &amp; starfield)</Typography>}
+      />
+      <Typography sx={{ fontSize: 12, color: '#9aa3c7', mt: -0.5 }}>
+        Turn this off (or dim it) so an uploaded image/video shows clearly
+        instead of competing with the animated backdrop.
+      </Typography>
+      {animOn && (
+        <Box>
+          <Typography sx={{ fontSize: 12, color: '#9aa3c7', mb: 0.5 }}>
+            Animation intensity: {Math.round(animOpacity * 100)}%
+          </Typography>
+          <Slider
+            value={animOpacity}
+            min={0.05} max={1} step={0.05}
+            onChange={(_e, v) => { setAnimOp(v); setAnimationOpacity(v); }}
+            sx={{ color: '#a78bfa' }}
+          />
+        </Box>
+      )}
     </Stack>
   );
 }

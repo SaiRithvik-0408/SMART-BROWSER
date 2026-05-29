@@ -483,7 +483,11 @@ function ensureOverlayView() {
       // session that has the proxy/adblock attached.
     },
   });
-  overlayView.setBackgroundColor('#0a0e22');
+  // Transparent so the overlay can paint a dim backdrop + a floating popup
+  // card while the website / home page underneath stays visible. The overlay
+  // covers the whole content area and intercepts clicks (so a click on the
+  // backdrop closes it), but it never resizes or replaces the page view.
+  overlayView.setBackgroundColor('#00000000');
   overlayView.setVisible(false);
   mainWindow.contentView.addChildView(overlayView);
   overlayView.webContents.loadURL(rendererUrl('overlay=1'));

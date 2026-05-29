@@ -8,6 +8,64 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.42] - 2026-05-29
+
+### Fixed — Panels are now true popup windows (no more clipping / broken UI)
+
+The overlay panels (Settings, Notes, VPN, History, Downloads, Passwords,
+Extensions) were rendered in a narrow right-edge `WebContentsView` strip
+whose bounds could push the content off-screen, so the panel UI looked cut
+off and Settings was sometimes invisible when a website was open.
+
+The overlay view now covers the **whole content area** and is fully
+transparent. `PanelHost` paints a dim, slightly-blurred backdrop plus a
+floating, CSS-sized popup card — so:
+
+- The panel can never be clipped by the window edge.
+- **Clicking anywhere outside the card (the backdrop) closes it** — as does
+  Esc. This works regardless of whether a website tab is open.
+- The website / home page underneath is never resized or replaced; it just
+  shows through the dim backdrop like a normal modal.
+- Settings (and every other panel) is now reliably visible on top of an
+  open website.
+
+Files: `electron/main.js` (overlay view now transparent),
+`frontend/src/main.jsx` (transparent body in overlay mode),
+`frontend/src/PanelHost.jsx` (backdrop + popup card),
+`frontend/src/App.jsx` (overlay covers the full content rect).
+
+### Changed — Background animation is subtler + can be turned off
+
+The animated globe/starfield backdrop overpowered uploaded image/video
+backgrounds. It's now scaled down with much lower opacities and fewer
+particles, and **Settings → Appearance** gained:
+
+- A **Background animation** on/off switch.
+- An **Animation intensity** slider (when on).
+
+With the animation dimmed or off, a custom wallpaper reads clearly.
+Files: `frontend/src/components/ThreeBackground.jsx`,
+`frontend/src/lib/background.js`, `frontend/src/components/SettingsPage.jsx`.
+
+### Added — Four new dashboard widgets
+
+- **Weather** — current conditions + hi/lo + wind for any city (free
+  open-meteo API, no key; click the name to change city).
+- **Calculator** — a basic offline calculator.
+- **Timer** — countdown / Pomodoro timer with 5/10/25-min presets,
+  start/pause/reset and a progress bar.
+- **Quote** — rotating built-in quotes (click to advance).
+
+All four are in the **+ Add widget** menu and are fully resizable/movable
+like every other widget. (`frontend/src/components/Widgets.jsx`.)
+
+### Note — widget half-height
+
+Half-height resize (right-click → ½ Height, or dragging the south handle)
+is implemented and the minimum drag height is now half the current height.
+If it still looks unchanged, you're running the previous packaged build —
+this `v1.0.42` build includes it.
+
 ## [v1.0.41] - 2026-05-29
 
 ### Changed — Panels float ABOVE the page in a dedicated overlay view

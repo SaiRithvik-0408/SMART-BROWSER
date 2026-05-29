@@ -1,7 +1,10 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
 import * as THREE from 'three';
+import {
+  loadAnimationEnabled, loadAnimationOpacity, onBackgroundChanged,
+} from '../lib/background';
 
 function Globe({ active }) {
   const groupRef = useRef();
@@ -12,30 +15,32 @@ function Globe({ active }) {
     if (ringRef.current)  ringRef.current.rotation.z  += dt * 0.25;
   });
 
+  // Scaled down + lower opacities vs the original so it reads as a subtle
+  // backdrop rather than dominating an uploaded image/video background.
   return (
-    <group ref={groupRef} position={[0, 0, 0]}>
+    <group ref={groupRef} position={[0, 0, 0]} scale={0.8}>
       <mesh>
         <icosahedronGeometry args={[2.2, 3]} />
         <meshBasicMaterial
           color={active ? '#7aa2ff' : '#3b4a8a'}
           wireframe
           transparent
-          opacity={0.55}
+          opacity={0.32}
         />
       </mesh>
       <mesh>
         <sphereGeometry args={[2.15, 48, 48]} />
-        <meshBasicMaterial color={active ? '#0c1840' : '#0a1130'} transparent opacity={0.55} />
+        <meshBasicMaterial color={active ? '#0c1840' : '#0a1130'} transparent opacity={0.3} />
       </mesh>
       <mesh ref={ringRef} rotation={[Math.PI / 2.4, 0, 0]}>
         <torusGeometry args={[2.9, 0.012, 16, 200]} />
-        <meshBasicMaterial color={active ? '#a78bfa' : '#4b3b8a'} transparent opacity={0.8} />
+        <meshBasicMaterial color={active ? '#a78bfa' : '#4b3b8a'} transparent opacity={0.45} />
       </mesh>
     </group>
   );
 }
 
-function Particles({ count = 600, active }) {
+function Particles({ count = 320, active }) {
   const ref = useRef();
   const positions = useMemo(() => {
     const arr = new Float32Array(count * 3);
@@ -68,10 +73,10 @@ function Particles({ count = 600, active }) {
         />
       </bufferGeometry>
       <pointsMaterial
-        size={0.035}
+        size={0.03}
         color={active ? '#7aa2ff' : '#6b7bb8'}
         transparent
-        opacity={0.85}
+        opacity={0.45}
         sizeAttenuation
         depthWrite={false}
         blending={THREE.AdditiveBlending}
@@ -81,6 +86,15 @@ function Particles({ count = 600, active }) {
 }
 
 export default function ThreeBackground({ active = false }) {
+  // Live-read the appearance settings (enabled + intensity) so toggling them
+  // in Settings → Appearance updates the backdrop without a reload.
+  const [enabled, setEnabled] = useState(() => loadAnimationEnabled());
+  const [opacity, setOpacity] = useState(() => loadAnimationOpacity());
+  useEffect(() => onBackgroundChanged(() => {
+    setEnabled(loadAnimationEnabled());
+    setOpacity(loadAnimationOpacity());
+  }), []);
+
   return (
     <div
       style={{
@@ -89,17 +103,21 @@ export default function ThreeBackground({ active = false }) {
         zIndex: 0,
         pointerEvents: 'none',
         background:
-          'radial-gradient(1200px 700px at 50% 20%, rgba(122,162,255,0.10), transparent 60%),' +
-          'radial-gradient(900px 600px at 80% 90%, rgba(167,139,250,0.10), transparent 60%),' +
+          'radial-gradient(1200px 700px at 50% 20%, rgba(122,162,255,0.08), transparent 60%),' +
+          'radial-gradient(900px 600px at 80% 90%, rgba(167,139,250,0.08), transparent 60%),' +
           '#05060f',
       }}
     >
-      <Canvas camera={{ position: [0, 0, 7], fov: 55 }}>
-        <ambientLight intensity={0.6} />
-        <Stars radius={60} depth={40} count={2000} factor={3} fade speed={0.6} />
-        <Particles active={active} />
-        <Globe active={active} />
-      </Canvas>
+      {enabled && (
+        <div style={{ position: 'absolute', inset: 0, opacity }}>
+          <Canvas camera={{ position: [0, 0, 7], fov: 55 }}>
+            <ambientLight intensity={0.6} />
+            <Stars radius={60} depth={40} count={1100} factor={2.5} fade speed={0.5} />
+            <Particles active={active} />
+            <Globe active={active} />
+          </Canvas>
+        </div>
+      )}
     </div>
   );
 }

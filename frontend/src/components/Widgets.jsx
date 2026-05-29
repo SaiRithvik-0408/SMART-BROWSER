@@ -24,6 +24,10 @@ import AppsIcon from '@mui/icons-material/Apps';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import CalculateIcon from '@mui/icons-material/Calculate';
+import TimerIcon from '@mui/icons-material/Timer';
+import WbSunnyIcon from '@mui/icons-material/WbSunny';
+import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import { motion } from 'framer-motion';
 import { proxyUrlFor } from '../api/client';
 import GridLayout from 'react-grid-layout';
@@ -96,6 +100,10 @@ const CATALOG = [
   { type: 'stocks',     label: 'Stocks',       icon: <TrendingUpIcon fontSize="small" />,    defaultSize: { w: 10, h: 8  }, minSize: { w: 1, h: 1 } },
   { type: 'ai',         label: 'Ask AI',       icon: <AutoAwesomeIcon fontSize="small" />,   defaultSize: { w: 10, h: 8  }, minSize: { w: 1, h: 1 } },
   { type: 'news',       label: 'News',         icon: <NewspaperIcon fontSize="small" />,     defaultSize: { w: 20, h: 12 }, minSize: { w: 1, h: 1 } },
+  { type: 'weather',    label: 'Weather',      icon: <WbSunnyIcon fontSize="small" />,       defaultSize: { w: 8,  h: 6  }, minSize: { w: 1, h: 1 } },
+  { type: 'calculator', label: 'Calculator',   icon: <CalculateIcon fontSize="small" />,     defaultSize: { w: 6,  h: 9  }, minSize: { w: 1, h: 1 } },
+  { type: 'timer',      label: 'Timer',        icon: <TimerIcon fontSize="small" />,         defaultSize: { w: 7,  h: 6  }, minSize: { w: 1, h: 1 } },
+  { type: 'quote',      label: 'Quote',        icon: <FormatQuoteIcon fontSize="small" />,   defaultSize: { w: 10, h: 4  }, minSize: { w: 1, h: 1 } },
 ];
 const catalogFor = (type) => CATALOG.find((c) => c.type === type) || CATALOG[0];
 
@@ -658,6 +666,233 @@ export default function Widgets({ onOpen }) {
   );
 }
 
+// ===========================================================================
+// WeatherWidget — current conditions for a user-set city, via the free
+// open-meteo API (no API key required). Refreshes every 15 min.
+// ===========================================================================
+const WX_CODE = {
+  0: ['Clear', '☀️'], 1: ['Mainly clear', '🌤️'], 2: ['Partly cloudy', '⛅'],
+  3: ['Overcast', '☁️'], 45: ['Fog', '🌫️'], 48: ['Rime fog', '🌫️'],
+  51: ['Light drizzle', '🌦️'], 53: ['Drizzle', '🌦️'], 55: ['Heavy drizzle', '🌧️'],
+  61: ['Light rain', '🌦️'], 63: ['Rain', '🌧️'], 65: ['Heavy rain', '🌧️'],
+  71: ['Light snow', '🌨️'], 73: ['Snow', '🌨️'], 75: ['Heavy snow', '❄️'],
+  80: ['Showers', '🌦️'], 81: ['Showers', '🌧️'], 82: ['Violent showers', '⛈️'],
+  95: ['Thunderstorm', '⛈️'], 96: ['Thunderstorm', '⛈️'], 99: ['Thunderstorm', '⛈️'],
+};
+function WeatherWidget({ config, onConfig }) {
+  const city = config.city || 'New York';
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(city);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+
+  const load = async (q) => {
+    setError('');
+    try {
+      const g = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1`).then((r) => r.json());
+      const loc = g?.results?.[0];
+      if (!loc) { setError('City not found'); setData(null); return; }
+      const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto`).then((r) => r.json());
+      setData({ name: `${loc.name}${loc.country_code ? ', ' + loc.country_code : ''}`, cur: w.current, daily: w.daily });
+    } catch { setError('Could not load weather'); }
+  };
+
+  useEffect(() => { load(city); const id = setInterval(() => load(city), 15 * 60 * 1000); return () => clearInterval(id); }, [city]);
+
+  const commit = () => {
+    const v = draft.trim();
+    setEditing(false);
+    if (v && v !== city) onConfig?.({ city: v });
+  };
+
+  const code = data?.cur?.weather_code;
+  const [label, emoji] = WX_CODE[code] || ['—', '🌡️'];
+
+  return (
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0.5, p: 0.5, minHeight: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        {editing ? (
+          <InputBase
+            autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
+            placeholder="City…"
+            sx={{ flex: 1, fontFamily: MONO, fontSize: 12, color: '#e6e9f5',
+              border: `1px solid ${LINE}`, borderRadius: 1, px: 0.75 }}
+          />
+        ) : (
+          <Typography onClick={() => { setDraft(city); setEditing(true); }}
+            sx={{ flex: 1, fontFamily: MONO, fontSize: 12, color: '#9aa3c7', cursor: 'pointer',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              '&:hover': { color: ACCENT } }}>
+            {data?.name || city}
+          </Typography>
+        )}
+      </Box>
+      {error ? (
+        <Typography sx={{ fontSize: 12, color: ACCENT, m: 'auto' }}>{error}</Typography>
+      ) : !data ? (
+        <Typography sx={{ fontSize: 12, color: '#5b6385', m: 'auto' }}>Loading…</Typography>
+      ) : (
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography sx={{ fontSize: 'clamp(28px, 7vw, 44px)', lineHeight: 1 }}>{emoji}</Typography>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontFamily: MONO, fontSize: 'clamp(22px, 6vw, 34px)', fontWeight: 700, color: '#e6e9f5', lineHeight: 1 }}>
+                {Math.round(data.cur.temperature_2m)}°
+              </Typography>
+              <Typography sx={{ fontSize: 11, color: '#9aa3c7', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</Typography>
+            </Box>
+          </Box>
+          <Typography sx={{ fontFamily: MONO, fontSize: 11, color: '#7a82a8', mt: 0.5 }}>
+            H {Math.round(data.daily?.temperature_2m_max?.[0])}°
+            · L {Math.round(data.daily?.temperature_2m_min?.[0])}°
+            · 💨 {Math.round(data.cur.wind_speed_10m)} km/h
+          </Typography>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+// ===========================================================================
+// CalculatorWidget — a basic offline calculator. We restrict input to a safe
+// charset and evaluate with Function (no eval of arbitrary code).
+// ===========================================================================
+function CalculatorWidget() {
+  const [expr, setExpr] = useState('');
+  const [result, setResult] = useState('');
+  const safeEval = (s) => {
+    if (!/^[\d+\-*/.()%\s]+$/.test(s)) throw new Error('bad');
+    // eslint-disable-next-line no-new-func
+    const v = Function(`"use strict";return (${s.replace(/%/g, '/100')})`)();
+    if (typeof v !== 'number' || !isFinite(v)) throw new Error('bad');
+    return Math.round(v * 1e9) / 1e9;
+  };
+  const press = (k) => {
+    if (k === '=') { try { setResult(String(safeEval(expr))); } catch { setResult('Error'); } return; }
+    if (k === 'C') { setExpr(''); setResult(''); return; }
+    if (k === '⌫') { setExpr((e) => e.slice(0, -1)); return; }
+    setExpr((e) => e + k);
+  };
+  const keys = ['C', '(', ')', '⌫', '7', '8', '9', '/', '4', '5', '6', '*', '1', '2', '3', '-', '0', '.', '%', '+', '='];
+  return (
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0.5, p: 0.5, minHeight: 0 }}>
+      <Box sx={{ border: `1px solid ${LINE}`, borderRadius: 1, px: 1, py: 0.5, textAlign: 'right',
+        background: 'rgba(0,0,0,0.25)', minHeight: 0 }}>
+        <Typography sx={{ fontFamily: MONO, fontSize: 12, color: '#7a82a8', minHeight: 16,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{expr || '0'}</Typography>
+        <Typography sx={{ fontFamily: MONO, fontSize: 18, fontWeight: 700, color: result === 'Error' ? ACCENT : '#e6e9f5',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result || ''}</Typography>
+      </Box>
+      <Box sx={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0.5, minHeight: 0 }}>
+        {keys.map((k) => (
+          <Box key={k} component="button" onClick={() => press(k)}
+            sx={{
+              border: `1px solid ${LINE}`, borderRadius: 1, cursor: 'pointer',
+              fontFamily: MONO, fontSize: 14, color: k === '=' ? '#fff' : '#e6e9f5',
+              background: k === '=' ? ACCENT : (/[/*\-+%()]/.test(k) ? 'rgba(167,139,250,0.12)' : 'rgba(255,255,255,0.04)'),
+              gridColumn: k === '0' ? 'span 1' : 'auto',
+              transition: 'background 120ms ease', '&:hover': { background: k === '=' ? '#b83a32' : 'rgba(255,255,255,0.12)' },
+            }}>
+            {k}
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+// ===========================================================================
+// TimerWidget — a countdown / Pomodoro timer. Presets + start/pause/reset.
+// ===========================================================================
+function TimerWidget({ config, onConfig }) {
+  const presets = [5, 10, 25];
+  const initMin = config.minutes || 25;
+  const [remaining, setRemaining] = useState(initMin * 60);
+  const [running, setRunning] = useState(false);
+  const [base, setBase] = useState(initMin * 60);
+  const tickRef = React.useRef(null);
+
+  useEffect(() => {
+    if (!running) return;
+    tickRef.current = setInterval(() => {
+      setRemaining((r) => {
+        if (r <= 1) { clearInterval(tickRef.current); setRunning(false); try { new Audio('data:audio/wav;base64,UklGRi4AAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAAAAAAAAAAAAAAAA').play(); } catch {} return 0; }
+        return r - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tickRef.current);
+  }, [running]);
+
+  const setMinutes = (m) => { setRunning(false); setBase(m * 60); setRemaining(m * 60); onConfig?.({ minutes: m }); };
+  const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
+  const ss = String(remaining % 60).padStart(2, '0');
+  const pct = base ? (1 - remaining / base) * 100 : 0;
+
+  return (
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, p: 0.5, minHeight: 0 }}>
+      <Typography sx={{ fontFamily: MONO, fontSize: 'clamp(28px, 9vw, 52px)', fontWeight: 700,
+        color: remaining === 0 ? ACCENT : '#e6e9f5', lineHeight: 1 }}>
+        {mm}:{ss}
+      </Typography>
+      <Box sx={{ width: '80%', height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+        <Box sx={{ width: `${pct}%`, height: '100%', background: ACCENT, transition: 'width 1s linear' }} />
+      </Box>
+      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'center' }}>
+        {presets.map((m) => (
+          <Box key={m} component="button" onClick={() => setMinutes(m)}
+            sx={{ border: `1px solid ${base === m * 60 ? ACCENT : LINE}`, borderRadius: 1, px: 0.75, py: 0.25,
+              cursor: 'pointer', fontFamily: MONO, fontSize: 11, color: '#e6e9f5', background: 'transparent' }}>
+            {m}m
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <Box component="button" onClick={() => setRunning((v) => !v)}
+          sx={{ border: 'none', borderRadius: 1, px: 1.5, py: 0.5, cursor: 'pointer',
+            fontFamily: MONO, fontSize: 11, color: '#fff', background: ACCENT }}>
+          {running ? 'Pause' : 'Start'}
+        </Box>
+        <Box component="button" onClick={() => { setRunning(false); setRemaining(base); }}
+          sx={{ border: `1px solid ${LINE}`, borderRadius: 1, px: 1.5, py: 0.5, cursor: 'pointer',
+            fontFamily: MONO, fontSize: 11, color: '#9aa3c7', background: 'transparent' }}>
+          Reset
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+// ===========================================================================
+// QuoteWidget — rotates a built-in list of quotes (offline). New quote every
+// 30s, or click to advance.
+// ===========================================================================
+const QUOTES = [
+  ['Simplicity is the ultimate sophistication.', 'Leonardo da Vinci'],
+  ['Stay hungry, stay foolish.', 'Steve Jobs'],
+  ['The best way to predict the future is to invent it.', 'Alan Kay'],
+  ['Programs must be written for people to read.', 'Harold Abelson'],
+  ['Make it work, make it right, make it fast.', 'Kent Beck'],
+  ['What we know is a drop, what we don\u2019t know is an ocean.', 'Isaac Newton'],
+  ['The only way to do great work is to love what you do.', 'Steve Jobs'],
+  ['Done is better than perfect.', 'Sheryl Sandberg'],
+];
+function QuoteWidget() {
+  const [i, setI] = useState(() => Math.floor(Math.random() * QUOTES.length));
+  useEffect(() => { const id = setInterval(() => setI((n) => (n + 1) % QUOTES.length), 30000); return () => clearInterval(id); }, []);
+  const [text, author] = QUOTES[i];
+  return (
+    <Box onClick={() => setI((n) => (n + 1) % QUOTES.length)}
+      sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.5, p: 0.5, cursor: 'pointer', minHeight: 0, overflow: 'hidden' }}>
+      <FormatQuoteIcon sx={{ color: ACCENT, fontSize: 18, opacity: 0.7 }} />
+      <Typography sx={{ fontSize: 'clamp(12px, 2.2vw, 15px)', color: '#e6e9f5', fontStyle: 'italic', lineHeight: 1.4 }}>
+        {text}
+      </Typography>
+      <Typography sx={{ fontFamily: MONO, fontSize: 11, color: '#7a82a8' }}>— {author}</Typography>
+    </Box>
+  );
+}
+
 function WidgetFrame({
   widget, onRemove, onDuplicate, onConfig, onOpen,
   onHalfHeight, onHalfWidth, onDoubleHeight, onDoubleWidth, onResetSize,
@@ -773,6 +1008,10 @@ function WidgetFrame({
         {widget.type === 'stocks' && <StockWidget config={widget.config} onConfig={onConfig} layout={widget.layout} />}
         {widget.type === 'ai' && <AiWidget config={widget.config} onConfig={onConfig} onOpen={onOpen} />}
         {widget.type === 'news' && <NewsFeed onOpen={onOpen} compact />}
+        {widget.type === 'weather' && <WeatherWidget config={widget.config} onConfig={onConfig} />}
+        {widget.type === 'calculator' && <CalculatorWidget />}
+        {widget.type === 'timer' && <TimerWidget config={widget.config} onConfig={onConfig} />}
+        {widget.type === 'quote' && <QuoteWidget />}
       </Box>
 
       {/* Right-click menu — Duplicate clones the widget directly below the

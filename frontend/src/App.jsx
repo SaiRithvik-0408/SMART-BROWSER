@@ -235,16 +235,15 @@ export default function App() {
     : notesPanelOpen ? 'notes'
     : vpnPanelOpen ? 'vpn'
     : null;
-  const panelWidthFor = (name) => (name === 'vpn' ? 400 : 520);
-
-  // Compute the docked panel rect (right-edge strip) in window-content
-  // coordinates from the content area's bounding box.
-  const computePanelRect = (name) => {
+  // The overlay view covers the WHOLE content area (below the tab strip /
+  // omnibar). PanelHost paints a dim backdrop + a floating popup card inside
+  // it, so the page underneath is never resized — it just shows through the
+  // backdrop like a modal. We only need the content area's bounding box.
+  const computePanelRect = () => {
     const el = contentRef.current;
     if (!el) return null;
     const r = el.getBoundingClientRect();
-    const w = Math.min(panelWidthFor(name), Math.round(r.width));
-    return { x: Math.round(r.right - w), y: Math.round(r.top), width: w, height: Math.round(r.height) };
+    return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
   };
 
   // Drive the native overlay whenever the logical panel changes.
@@ -253,7 +252,7 @@ export default function App() {
     if (openPanelName) {
       overlayApi.open(
         openPanelName,
-        computePanelRect(openPanelName),
+        computePanelRect(),
         openPanelName === 'notes' ? { initialNoteId: notesInitialId } : null,
       );
     } else {
@@ -264,7 +263,7 @@ export default function App() {
   // Keep the overlay bounds glued to the content area on resize.
   useEffect(() => {
     if (!overlayApi || !openPanelName) return;
-    const push = () => { const r = computePanelRect(openPanelName); if (r) overlayApi.setBounds(r); };
+    const push = () => { const r = computePanelRect(); if (r) overlayApi.setBounds(r); };
     push();
     const ro = new ResizeObserver(push);
     if (contentRef.current) ro.observe(contentRef.current);
