@@ -19,6 +19,8 @@
 // positions in the Settings UI.
 // =========================================================================
 
+import { emit } from './bus';
+
 export const LAYOUTS_KEY    = 'smartbrowser.widgets.layouts.v1';
 export const WIDGETS_KEY    = 'smartbrowser.widgets.v6';
 export const GRID_COLS_KEY  = 'smartbrowser.widgets.gridCols.v1';
@@ -72,14 +74,9 @@ export function applySlot(slotIdx) {
   if (!layout || !layout.widgets) return false;
   writeJson(WIDGETS_KEY, layout.widgets);
   try { window.localStorage.setItem(GRID_COLS_KEY, String(layout.gridCols || 20)); } catch {}
-  // Notify any mounted Widgets component so it can re-read state without a
-  // page reload. localStorage 'storage' events only fire across windows,
-  // so we use a custom in-page event.
-  try {
-    window.dispatchEvent(new CustomEvent(LAYOUT_CHANGED, {
-      detail: { widgets: layout.widgets, gridCols: layout.gridCols },
-    }));
-  } catch {}
+  // Notify any mounted Widgets component (in this OR the overlay renderer)
+  // so it can re-read state without a page reload.
+  emit(LAYOUT_CHANGED, { widgets: layout.widgets, gridCols: layout.gridCols });
   return true;
 }
 
@@ -118,10 +115,6 @@ export function getCurrentGridCols() {
 export function setCurrentGridCols(n) {
   const clamped = Math.max(GRID_COL_MIN, Math.min(GRID_COL_MAX, Math.round(Number(n) || GRID_COL_DEFAULT)));
   try { window.localStorage.setItem(GRID_COLS_KEY, String(clamped)); } catch {}
-  try {
-    window.dispatchEvent(new CustomEvent(LAYOUT_CHANGED, {
-      detail: { gridCols: clamped },
-    }));
-  } catch {}
+  emit(LAYOUT_CHANGED, { gridCols: clamped });
   return clamped;
 }

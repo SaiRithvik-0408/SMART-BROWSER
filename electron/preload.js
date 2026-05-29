@@ -109,6 +109,19 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
     remove: (id)            => ipcRenderer.invoke('notes:remove', id),
   },
 
+  // Home-page background (image/video). Stored in the main process so the
+  // upload (in the overlay/settings view) reliably reaches the home page.
+  background: {
+    get:   ()      => ipcRenderer.invoke('background:get'),
+    pick:  (kind)  => ipcRenderer.invoke('background:pick', kind),   // 'image' | 'video'
+    clear: ()      => ipcRenderer.invoke('background:clear'),
+    onChanged: (cb) => {
+      const fn = () => { try { cb(); } catch {} };
+      ipcRenderer.on('background:changed', fn);
+      return () => ipcRenderer.removeListener('background:changed', fn);
+    },
+  },
+
   extensions: {
     list:          ()                 => ipcRenderer.invoke('extensions:list'),
     installFolder: ()                 => ipcRenderer.invoke('extensions:install-folder'),
@@ -138,5 +151,41 @@ contextBridge.exposeInMainWorld('smartBrowserAPI', {
   },
   window: {
     newWindow:  ()           => ipcRenderer.invoke('window:new'),
+  },
+
+  // Floating side-panel overlay. The panels (Notes / VPN / Settings / etc.)
+  // render in their OWN native view that floats above the page without
+  // resizing it. The main window drives open/close/bounds; the overlay
+  // renderer (index.html?overlay=1) listens for show/hide.
+  overlay: {
+    // --- called by the MAIN window (chrome) ---
+    open:      (panel, rect, payload) => ipcRenderer.invoke('overlay:open', { panel, rect, payload: payload || null }),
+    setBounds: (rect)                 => ipcRenderer.invoke('overlay:set-bounds', rect),
+    onClosed:  (cb) => {
+      const h = () => cb?.();
+      ipcRenderer.on('overlay:closed', h);
+      return () => ipcRenderer.removeListener('overlay:closed', h);
+    },
+    // Main window subscribes to navigation requests forwarded from a panel
+    // (e.g. clicking a History entry inside the overlay).
+    onNavigate: (cb) => {
+      const h = (_e, url) => cb?.(url);
+      ipcRenderer.on('overlay:navigate', h);
+      return () => ipcRenderer.removeListener('overlay:navigate', h);
+    },
+    // --- called by the OVERLAY renderer ---
+    close:     ()  => ipcRenderer.invoke('overlay:close'),
+    ready:     ()  => ipcRenderer.invoke('overlay:ready'),
+    navigate:  (url) => ipcRenderer.invoke('overlay:navigate', url),
+    onShow:    (cb) => {
+      const h = (_e, msg) => cb?.(msg);
+      ipcRenderer.on('overlay:show', h);
+      return () => ipcRenderer.removeListener('overlay:show', h);
+    },
+    onHide:    (cb) => {
+      const h = () => cb?.();
+      ipcRenderer.on('overlay:hide', h);
+      return () => ipcRenderer.removeListener('overlay:hide', h);
+    },
   },
 });

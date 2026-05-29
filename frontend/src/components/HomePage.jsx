@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box } from '@mui/material';
 import Widgets from './Widgets';
 import Favorites from './Favorites';
-import { loadBackground, loadBackgroundOpacity, BG_CHANGED_EVENT } from '../lib/background';
+import { loadBackground, loadBackgroundOpacity, onBackgroundChanged } from '../lib/background';
 
 // Home page is now nothing but the favorites bar + the widget grid. The
 // SmartBrowser wordmark itself is a singleton widget (see Widgets.jsx →
@@ -30,11 +30,10 @@ export default function HomePage({ onOpen }) {
       setBgOp(loadBackgroundOpacity());
     };
     refresh();
-    const onChange = () => refresh();
-    window.addEventListener(BG_CHANGED_EVENT, onChange);
+    const off = onBackgroundChanged(() => refresh());
     return () => {
       cancelled = true;
-      window.removeEventListener(BG_CHANGED_EVENT, onChange);
+      off();
       if (lastUrl) { try { URL.revokeObjectURL(lastUrl); } catch {} }
     };
   }, []);

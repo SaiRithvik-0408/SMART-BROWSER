@@ -161,6 +161,7 @@ export default function App() {
   // panel and jump straight to a specific note.
   useEffect(() => {
     const onOpen = (e) => {
+      setVpnPanelOpen(false); setInternalOverlay(null);
       setNotesInitialId(e.detail?.noteId || null);
       setNotesPanelOpen(true);
     };
@@ -216,44 +217,113 @@ export default function App() {
     } catch {}
   }, [tabs, activeId]);
 
-  // Right-side panels (Notes, VPN, Settings/Extensions/History/Downloads/
-  // Passwords) reserve a fixed slice of the screen on the right edge.
-  // Adding right-padding to the BrowserView wrapper shrinks the
-  // placeholder div — a ResizeObserver inside BrowserView mirrors the
-  // new bounds into the native WebContentsView, so the page stays
-  // visible at the narrower width WHILE the panel sits beside it
-  // (Chrome/Brave side-panel UX).
+  // ---- Floating side panels (Notes / VPN / Settings / etc.) -------------
   //
-  // This intentionally undoes v1.0.35's "hide the webview" trick which
-  // left a blank area behind the panel — the user explicitly asked for
-  // the page to remain visible alongside the panel.
-  const PANEL_WIDTH = 540;        // px reserved on the right when any panel is open
-  const anyOverlayOpen = !!internalOverlay || notesPanelOpen || vpnPanelOpen;
+  // In the desktop build the panels render in their OWN native overlay view
+  // (see electron/main.js + PanelHost.jsx) that floats ABOVE the page view
+  // without resizing it. The website stays full-size and the visible-left
+  // portion is still interactive — true Brave-style side panel, no reflow.
+  //
+  // App keeps the open-state (for button highlights) and drives the overlay
+  // through `api.overlay`. In the web build (`!overlayApi`) the panels fall
+  // back to in-DOM absolute-positioned React components (rendered below).
+  const overlayApi = inElectron ? api?.overlay : null;
+  const contentRef = React.useRef(null);
 
-  // Esc closes any open internal overlay.
+  // Which single panel is logically open (priority: internal > notes > vpn).
+  const openPanelName = internalOverlay ? internalOverlay
+    : notesPanelOpen ? 'notes'
+    : vpnPanelOpen ? 'vpn'
+    : null;
+  const panelWidthFor = (name) => (name === 'vpn' ? 400 : 520);
+
+  // Compute the docked panel rect (right-edge strip) in window-content
+  // coordinates from the content area's bounding box.
+  const computePanelRect = (name) => {
+    const el = contentRef.current;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const w = Math.min(panelWidthFor(name), Math.round(r.width));
+    return { x: Math.round(r.right - w), y: Math.round(r.top), width: w, height: Math.round(r.height) };
+  };
+
+  // Drive the native overlay whenever the logical panel changes.
   useEffect(() => {
-    if (!internalOverlay) return;
+    if (!overlayApi) return;
+    if (openPanelName) {
+      overlayApi.open(
+        openPanelName,
+        computePanelRect(openPanelName),
+        openPanelName === 'notes' ? { initialNoteId: notesInitialId } : null,
+      );
+    } else {
+      overlayApi.close();
+    }
+  }, [openPanelName, notesInitialId]);
+
+  // Keep the overlay bounds glued to the content area on resize.
+  useEffect(() => {
+    if (!overlayApi || !openPanelName) return;
+    const push = () => { const r = computePanelRect(openPanelName); if (r) overlayApi.setBounds(r); };
+    push();
+    const ro = new ResizeObserver(push);
+    if (contentRef.current) ro.observe(contentRef.current);
+    window.addEventListener('resize', push);
+    return () => { ro.disconnect(); window.removeEventListener('resize', push); };
+  }, [openPanelName]);
+
+  // Reset open-state when the overlay closes itself (X button / Esc / the
+  // user clicked the page). Main broadcasts overlay:closed.
+  useEffect(() => {
+    if (!overlayApi?.onClosed) return;
+    return overlayApi.onClosed(() => {
+      setInternalOverlay(null); setNotesPanelOpen(false); setVpnPanelOpen(false);
+    });
+  }, []);
+
+  // A panel (e.g. History) asked to open a URL — navigate the active tab.
+  const navigateRef = React.useRef(null);
+  useEffect(() => {
+    if (!overlayApi?.onNavigate) return;
+    return overlayApi.onNavigate((url) => {
+      setInternalOverlay(null); setNotesPanelOpen(false); setVpnPanelOpen(false);
+      if (url) navigateRef.current?.(url);
+    });
+  }, []);
+
+  // Close the overlay when the user clicks into the page (native focus).
+  const openPanelRef = React.useRef(null);
+  openPanelRef.current = openPanelName;
+  useEffect(() => {
+    if (!overlayApi || !api?.tab?.onPageFocus) return;
+    return api.tab.onPageFocus(() => {
+      if (openPanelRef.current) overlayApi.close();
+    });
+  }, []);
+
+  // Esc closes any open internal overlay in the WEB fallback (the native
+  // overlay handles Esc inside PanelHost).
+  useEffect(() => {
+    if (overlayApi || !internalOverlay) return;
     const onKey = (e) => { if (e.key === 'Escape') setInternalOverlay(null); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [internalOverlay]);
+  }, [internalOverlay, overlayApi]);
 
-  // Open one of the internal pages as a floating overlay. Closing the
-  // overlay restores the user's current tab — no navigation, no extra
-  // tab on the strip.
-  const openInternal = (name) => setInternalOverlay(name);
+  // Open one of the internal pages. Opening any panel closes the others so
+  // only one is ever logically active.
+  const openInternal = (name) => { setNotesPanelOpen(false); setVpnPanelOpen(false); setInternalOverlay(name); };
   const closeInternal = () => setInternalOverlay(null);
+  const toggleNotes = () => { setVpnPanelOpen(false); setInternalOverlay(null); setNotesPanelOpen(v => !v); };
+  const toggleVpn   = () => { setNotesPanelOpen(false); setInternalOverlay(null); setVpnPanelOpen(v => !v); };
 
   // Helper for the BrowserView click-into-tab callback: dismiss any open
   // overlay first, so clicking the page area always returns to it.
   const dismissAllOverlays = () => {
     if (internalOverlay) setInternalOverlay(null);
+    if (notesPanelOpen)  setNotesPanelOpen(false);
+    if (vpnPanelOpen)    setVpnPanelOpen(false);
   };
-
-  // NOTE: don't hide the native views when the VPN panel opens — instead the
-  // BrowserView container shrinks (right padding below) so the panel sits in
-  // the freed-up region. ResizeObserver inside BrowserView re-syncs the native
-  // view bounds, so the page stays visible AND the panel is clickable.
 
   const updateActive = (mut) => {
     setTabs(prev => prev.map(t => t.id === activeId ? mut(t) : t));
@@ -282,6 +352,9 @@ export default function App() {
       return { ...t, url, history: next, cursor: next.length - 1, title: url, _displayUrl: undefined };
     });
   };
+  // Keep a ref to the latest navigate so overlay:navigate (subscribed once)
+  // always calls the current closure, not a stale one.
+  navigateRef.current = navigate;
 
   // Hybrid navigation history.
   //
@@ -447,9 +520,9 @@ export default function App() {
           onBack={back} onForward={forward} onReload={reload} onHome={home}
           vpnOn={vpnStatus.enabled}
           activeServerLabel={vpnStatus.activeServer?.label}
-          onToggleVpnPanel={() => setVpnPanelOpen(v => !v)}
+          onToggleVpnPanel={toggleVpn}
           notesOpen={notesPanelOpen}
-          onToggleNotesPanel={() => { setNotesInitialId(null); setNotesPanelOpen(v => !v); }}
+          onToggleNotesPanel={() => { setNotesInitialId(null); toggleNotes(); }}
           onNewTab={addTab}
           onOpenInternal={openInternal}
           isHomeActive={!active || active.url === 'home'}
@@ -457,18 +530,14 @@ export default function App() {
           onHomeZoom={adjustHomeZoom}
         />
         <UpdateBanner />
-        <Box sx={{
+        {/* Content area. The native overlay panel floats ON TOP of this
+            region (positioned by main from contentRef's bounds) without
+            resizing the page — so NO right-padding here. */}
+        <Box ref={contentRef} sx={{
           flex: 1,
           display: 'flex',
           position: 'relative',
           minHeight: 0,                  // critical: lets nested overflow:auto actually scroll
-          // Reserve right-side space for any open panel. The placeholder
-          // div inside BrowserView shrinks accordingly; its
-          // ResizeObserver pushes the new bounds to the native
-          // WebContentsView so the page stays visible at the narrower
-          // width WHILE the panel renders beside it.
-          pr: anyOverlayOpen ? `${PANEL_WIDTH}px` : 0,
-          transition: 'padding-right 200ms ease',
         }}>
           {tabs.map(t => (
             <Box key={t.id} sx={{ flex: 1, display: t.id === activeId ? 'flex' : 'none', minHeight: 0 }}>
@@ -485,13 +554,20 @@ export default function App() {
             </Box>
           ))}
         </Box>
-        <VpnPanel open={vpnPanelOpen} onClose={() => setVpnPanelOpen(false)} />
-        <NotesPanel
-          open={notesPanelOpen}
-          onClose={() => setNotesPanelOpen(false)}
-          initialNoteId={notesInitialId}
-        />
-        <InternalOverlay name={internalOverlay} onClose={closeInternal} onOpen={(u) => { closeInternal(); navigate(u); }} />
+        {/* Web fallback only: when there's no native overlay view (browser
+            build), render the panels as in-DOM floating components. In the
+            desktop build these live in the overlay view (PanelHost). */}
+        {!overlayApi && (
+          <>
+            <VpnPanel open={vpnPanelOpen} onClose={() => setVpnPanelOpen(false)} />
+            <NotesPanel
+              open={notesPanelOpen}
+              onClose={() => setNotesPanelOpen(false)}
+              initialNoteId={notesInitialId}
+            />
+            <InternalOverlay name={internalOverlay} onClose={closeInternal} onOpen={(u) => { closeInternal(); navigate(u); }} />
+          </>
+        )}
       </Box>
     </Box>
   );

@@ -9,7 +9,7 @@ import BoltIcon from '@mui/icons-material/Bolt';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { VpnApi } from '../api/client';
 
-export default function VpnPanel({ open, onClose }) {
+export default function VpnPanel({ open, onClose, docked = false }) {
   const [status, setStatus] = useState({});
   const [servers, setServers] = useState([]);
   const [selected, setSelected] = useState('');
@@ -20,8 +20,9 @@ export default function VpnPanel({ open, onClose }) {
   // Auto-close on clicks outside the panel, Esc, OR when the user clicks
   // into the underlying native WebContentsView (which fires
   // chrome:page-focus from the main process). Mirrors NotesPanel.
+  // Skipped in docked (overlay) mode — PanelHost owns those behaviors.
   React.useEffect(() => {
-    if (!open) return;
+    if (!open || docked) return;
     // Brief grace window so the click that OPENED the panel doesn't
     // immediately close it. Same trick the notes panel uses.
     const armAt = Date.now() + 200;
@@ -61,7 +62,7 @@ export default function VpnPanel({ open, onClose }) {
       document.removeEventListener('keydown', onKey);
       try { unsubFocus(); } catch {}
     };
-  }, [open, onClose]);
+  }, [open, onClose, docked]);
 
   const refresh = async () => {
     try {
@@ -133,7 +134,11 @@ export default function VpnPanel({ open, onClose }) {
     <Paper
       ref={paperRef}
       elevation={12}
-      sx={{
+      sx={docked ? {
+        // Docked: fill the overlay view edge-to-edge.
+        position: 'absolute', inset: 0,
+        overflowY: 'auto', p: 2.5, borderRadius: 0,
+      } : {
         position: 'absolute', top: 64, zIndex: 30,
         // Responsive: floating panel on desktop, full-width sheet on narrow
         // windows (so the layout still works at mobile-like widths).

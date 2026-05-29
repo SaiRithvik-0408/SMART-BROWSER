@@ -2,10 +2,21 @@
 // Native WebContentsView per tab so DevTools can dock to the SmartBrowser window
 // (same architecture Chrome itself uses).
 
-const { app, BrowserWindow, WebContentsView, ipcMain, session, shell, Menu } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, shell, Menu, protocol, net } = require('electron');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
+const { pathToFileURL } = require('node:url');
+
+// Custom privileged scheme used to serve the user's home-page background
+// (image/video) from disk. Registering it as a standard secure scheme lets
+// it load from BOTH the packaged file:// renderer AND the dev http://localhost
+// renderer without tripping Chromium's web-security file:// restrictions, and
+// `stream: true` means videos are served range-request-friendly. MUST run
+// before app `ready`.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'sbbg', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } },
+]);
 const adblock = require('./adblock');
 const updater = require('./updater');
 const history = require('./history');
@@ -418,6 +429,9 @@ function activateTabView(tabId) {
     t.view.setBounds(lastBounds);
     try { syncWindowTitle(t.view.webContents.getTitle()); } catch {}
   }
+  // Tab views are re-stacked above the overlay whenever they're shown, so
+  // re-assert the overlay's top position if a panel is currently open.
+  if (overlayVisible) bringOverlayToFront();
 }
 
 function setBounds(tabId, bounds) {
@@ -428,6 +442,91 @@ function setBounds(tabId, bounds) {
 
 function setAllVisible(visible) {
   for (const t of tabs.values()) t.view.setVisible(visible);
+}
+
+// ====================  Overlay panel view  ==================================
+//
+// Notes / VPN / Settings / History / Downloads / Passwords / Extensions are
+// rendered in their OWN native WebContentsView that floats ABOVE the active
+// tab's page view, sized to a narrow strip on the right edge of the window.
+//
+// Why a separate native view instead of HTML in the main window? Native
+// WebContentsViews always paint above the main window's HTML, so a React
+// panel rendered in the main window would be hidden behind the page. Past
+// attempts worked around this by shrinking the page (it reflowed/"broke")
+// or hiding it (blank screen) — both of which the user rejected. A
+// dedicated overlay view floats on top of the full-size page WITHOUT
+// resizing it: the left part of the site stays visible AND interactive,
+// the panel docks over the right strip like Brave's side panel.
+let overlayView = null;
+let overlayVisible = false;
+let overlayReady = false;
+let pendingOverlayShow = null;     // {panel, payload} queued until renderer is ready
+
+function rendererUrl(query) {
+  const base = isDev
+    ? FRONTEND_DEV_URL
+    : `file://${path.join(__dirname, '..', 'frontend', 'dist', 'index.html')}`;
+  return query ? `${base}${base.includes('?') ? '&' : '?'}${query}` : base;
+}
+
+function ensureOverlayView() {
+  if (overlayView) return overlayView;
+  overlayView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      // NOTE: no `partition` — the overlay is privileged chrome (like the
+      // main window), NOT a web page, so it must not share the browsing
+      // session that has the proxy/adblock attached.
+    },
+  });
+  overlayView.setBackgroundColor('#0a0e22');
+  overlayView.setVisible(false);
+  mainWindow.contentView.addChildView(overlayView);
+  overlayView.webContents.loadURL(rendererUrl('overlay=1'));
+  // The overlay is chrome too — let it open external links in the OS
+  // browser rather than navigating itself.
+  overlayView.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  bindShortcuts(overlayView.webContents);
+  return overlayView;
+}
+
+function bringOverlayToFront() {
+  if (!overlayView) return;
+  // Re-adding an existing child view moves it to the top of the z-order.
+  try { mainWindow.contentView.addChildView(overlayView); } catch {}
+}
+
+function showOverlay(rect, panel, payload) {
+  ensureOverlayView();
+  if (rect && rect.width > 0 && rect.height > 0) {
+    overlayView.setBounds({
+      x: Math.round(rect.x), y: Math.round(rect.y),
+      width: Math.round(rect.width), height: Math.round(rect.height),
+    });
+  }
+  bringOverlayToFront();
+  overlayView.setVisible(true);
+  overlayVisible = true;
+  const msg = { panel, payload: payload || null };
+  if (overlayReady) overlayView.webContents.send('overlay:show', msg);
+  else pendingOverlayShow = msg;
+}
+
+function hideOverlay(notifyShell = true) {
+  if (overlayView) {
+    overlayView.setVisible(false);
+    try { overlayView.webContents.send('overlay:hide'); } catch {}
+  }
+  overlayVisible = false;
+  pendingOverlayShow = null;
+  if (notifyShell) broadcast('overlay:closed', {});
 }
 
 // ====================  Window  ==============================================
@@ -548,6 +647,8 @@ function createWindow() {
   });
 
   // When the host window resizes, reapply the cached bounds to the active view.
+  // The overlay panel re-syncs its own bounds via overlay:set-bounds from the
+  // renderer's ResizeObserver, so we don't touch it here.
   mainWindow.on('resize', () => {
     if (!activeTabId) return;
     const t = tabs.get(activeTabId);
@@ -602,6 +703,36 @@ ipcMain.handle('tab:open-devtools', (_e, tabId) => {
   const target = tabId ? tabs.get(tabId)?.view.webContents : mainWindow.webContents;
   if (!target) return;
   target.isDevToolsOpened() ? target.closeDevTools() : target.openDevTools({ mode: 'right' });
+});
+
+// ----- Overlay panel (Notes / VPN / Settings / etc.) ----------------------
+// open: from the main window when the user opens a panel. rect is the panel
+// strip in window-content coordinates (computed by the React shell so it's
+// pixel-accurate). The overlay view floats over the page without resizing it.
+ipcMain.handle('overlay:open', (_e, { rect, panel, payload }) => showOverlay(rect, panel, payload));
+ipcMain.handle('overlay:set-bounds', (_e, rect) => {
+  if (overlayView && overlayVisible && rect && rect.width > 0 && rect.height > 0) {
+    overlayView.setBounds({
+      x: Math.round(rect.x), y: Math.round(rect.y),
+      width: Math.round(rect.width), height: Math.round(rect.height),
+    });
+  }
+});
+// close: fired by the overlay renderer (X button / Esc / clicked the page).
+ipcMain.handle('overlay:close', () => hideOverlay(true));
+// navigate: a panel (e.g. History) asked to open a URL in the active tab.
+// Hide the overlay and forward the URL to the main window's navigate logic.
+ipcMain.handle('overlay:navigate', (_e, url) => {
+  hideOverlay(true);
+  broadcast('overlay:navigate', url);
+});
+// ready: the overlay renderer signals it has mounted and can receive shows.
+ipcMain.handle('overlay:ready', () => {
+  overlayReady = true;
+  if (pendingOverlayShow && overlayView) {
+    overlayView.webContents.send('overlay:show', pendingOverlayShow);
+    pendingOverlayShow = null;
+  }
 });
 
 // ----- Browser-wide actions (driven by the hamburger menu) ----------------
@@ -753,6 +884,80 @@ ipcMain.handle('notes:create', (_e, body)      => notes.create(body || {}));
 ipcMain.handle('notes:update', (_e, { id, patch }) => notes.update(id, patch || {}));
 ipcMain.handle('notes:remove', (_e, id)        => notes.remove(id));
 
+// ----- Home-page background (image / video) ------------------------------
+// Stored in the main process (userData/sb-bg) rather than renderer IndexedDB
+// so it is reliably shared between the main window (which renders it) and the
+// overlay/settings view (which uploads it), and so the file picker is a native
+// OS dialog instead of a hidden <input> inside a child WebContentsView (which
+// was unreliable). Served back to renderers via the sbbg:// protocol.
+const BG_DIR  = path.join(app.getPath('userData'), 'sb-bg');
+const BG_META = path.join(BG_DIR, 'meta.json');
+
+function readBgMeta() {
+  try { return JSON.parse(fs.readFileSync(BG_META, 'utf8')); } catch { return null; }
+}
+function bgPayload(meta) {
+  if (!meta || !meta.file) return null;
+  const p = path.join(BG_DIR, meta.file);
+  if (!fs.existsSync(p)) return null;
+  // Cache-bust with the saved timestamp so a replaced background of the same
+  // name doesn't get served stale from the renderer's HTTP cache.
+  return {
+    kind: meta.kind,
+    name: meta.name || meta.file,
+    size: meta.size || 0,
+    url:  `sbbg://media/${encodeURIComponent(meta.file)}?t=${meta.t || 0}`,
+  };
+}
+function notifyBgChanged() {
+  for (const wc of [mainWindow?.webContents, overlayView?.webContents]) {
+    try { if (wc && !wc.isDestroyed()) wc.send('background:changed'); } catch {}
+  }
+}
+
+ipcMain.handle('background:get', () => bgPayload(readBgMeta()));
+
+ipcMain.handle('background:clear', () => {
+  try {
+    if (fs.existsSync(BG_DIR)) {
+      for (const f of fs.readdirSync(BG_DIR)) { try { fs.unlinkSync(path.join(BG_DIR, f)); } catch {} }
+    }
+  } catch {}
+  notifyBgChanged();
+  return true;
+});
+
+ipcMain.handle('background:pick', async (e, kind) => {
+  const { dialog } = require('electron');
+  const w = BrowserWindow.fromWebContents(e.sender) || mainWindow;
+  const isVideo = kind === 'video';
+  const filters = isVideo
+    ? [{ name: 'Video', extensions: ['mp4', 'webm', 'ogg', 'ogv', 'mov', 'm4v', 'mkv'] }]
+    : [{ name: 'Image', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg'] }];
+  const res = await dialog.showOpenDialog(w, {
+    title: isVideo ? 'Choose a background video' : 'Choose a background image',
+    properties: ['openFile'],
+    filters,
+  });
+  if (res.canceled || !res.filePaths || !res.filePaths[0]) return { canceled: true };
+  const src = res.filePaths[0];
+  try {
+    fs.mkdirSync(BG_DIR, { recursive: true });
+    // Only ever keep one background — wipe the dir before copying the new file.
+    for (const f of fs.readdirSync(BG_DIR)) { try { fs.unlinkSync(path.join(BG_DIR, f)); } catch {} }
+    const ext  = (path.extname(src) || (isVideo ? '.mp4' : '.png')).toLowerCase();
+    const file = `bg${ext}`;
+    fs.copyFileSync(src, path.join(BG_DIR, file));
+    const size = fs.statSync(path.join(BG_DIR, file)).size;
+    const meta = { kind: isVideo ? 'video' : 'image', file, name: path.basename(src), size, t: Date.now() };
+    fs.writeFileSync(BG_META, JSON.stringify(meta));
+    notifyBgChanged();
+    return bgPayload(meta);
+  } catch (err) {
+    return { error: err.message || 'Failed to save background.' };
+  }
+});
+
 // ----- Extensions --------------------------------------------------------
 ipcMain.handle('extensions:list', () => extensions.list());
 ipcMain.handle('extensions:install-folder', async (e) => {
@@ -788,6 +993,19 @@ app.whenReady().then(() => {
   // This prevents sites like DuckDuckGo from showing "upgrade your browser" ads
   // and stops servers from fingerprinting the app as an Electron shell.
   // CRITICAL: must run on the SAME session the tabs use, not defaultSession.
+  // Serve home-page background files (sbbg://media/<file>) straight off disk.
+  protocol.handle('sbbg', async (req) => {
+    try {
+      const u = new URL(req.url);
+      const file = path.basename(decodeURIComponent(u.pathname.replace(/^\/+/, '')));
+      const p = path.join(BG_DIR, file);
+      if (!file || !fs.existsSync(p)) return new Response('', { status: 404 });
+      return net.fetch(pathToFileURL(p).toString());
+    } catch {
+      return new Response('', { status: 500 });
+    }
+  });
+
   const browsingSession = browserSession();
   const cleanUA = browsingSession.getUserAgent()
     .replace(/\s+Electron\/\S+/, '')

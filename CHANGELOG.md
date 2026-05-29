@@ -8,6 +8,69 @@ section collects changes that have landed on `main` but are not yet tagged.
 
 ## [Unreleased]
 
+## [v1.0.41] - 2026-05-29
+
+### Changed — Panels float ABOVE the page in a dedicated overlay view
+
+Settings, Extensions, History, Downloads, Passwords, Notes and the VPN
+panel no longer shrink or hide the website. They now render in a separate
+transparent `WebContentsView` (the "overlay") that floats on top of the
+main content — the Brave-style side panel the user kept asking for. The
+underlying page is never resized or replaced.
+
+- `electron/main.js` — new `overlayView` lifecycle: `ensureOverlayView()`,
+  `showOverlay()`, `hideOverlay()`, `bringOverlayToFront()`, plus
+  `overlay:open/close/set-bounds/ready/navigate` IPC.
+- `frontend/src/main.jsx` — renders `<App />` normally and `<PanelHost />`
+  when loaded with `?overlay=1`, so the same bundle serves both surfaces.
+- `frontend/src/PanelHost.jsx` (new) — host for the docked panels.
+- `NotesPanel` / `VpnPanel` — new `docked` prop (fills the overlay,
+  defers close handling to the host).
+- `frontend/src/lib/bus.js` (new) — `BroadcastChannel` event bus so
+  settings changes made in the overlay (layout, grid columns) update the
+  main window live.
+
+### Fixed — Background (image/video) upload now works
+
+The "Upload image / Upload video" buttons in **Settings → Appearance**
+did nothing inside the overlay view: a hidden `<input type=file>` is
+unreliable in a child `WebContentsView`, and the IndexedDB blob written
+there didn't reliably reach the home page.
+
+The background is now owned by the **main process**:
+
+- A native OS file dialog opens via `background:pick` IPC.
+- The chosen file is copied to `userData/sb-bg/` and served back through a
+  new privileged `sbbg://` protocol (works from both the packaged
+  `file://` renderer and the dev `http://localhost` one, and streams video
+  with range requests).
+- `background:get` / `background:clear` IPC + a `background:changed`
+  notification pushed to **both** the main window and the overlay, so the
+  home page repaints the moment you pick a file.
+- The plain web build still falls back to the old IndexedDB path.
+
+Files: `electron/main.js`, `electron/preload.js`,
+`frontend/src/lib/background.js`, `frontend/src/components/SettingsPage.jsx`,
+`frontend/src/components/HomePage.jsx`.
+
+### Fixed — Widgets can now be dragged down to half their height
+
+A widget's minimum drag-resize height is now `floor(currentHeight / 2)`
+(floored at one cell) instead of a flat 1-cell minimum. Because it's
+recomputed from the live height every render, you can keep halving a
+widget all the way down — one drag at a time — which is the
+"min height should be half the current height" behaviour that was asked
+for. (`frontend/src/components/Widgets.jsx → toLayoutArray`.)
+
+### Fixed — Notes panel showed a blank body / no note history
+
+In the docked Notes panel the editable area mounts a tick after the
+active note is selected, so the old `[active?.id]` effect fired while the
+editor ref was still `null` and never retried — the note body (and its
+images) came up empty. A stable callback-ref now loads the note's HTML
+the instant the editor element attaches.
+(`frontend/src/components/NotesPanel.jsx`.)
+
 ## [v1.0.40] - 2026-05-29
 
 ### Added — One-click widget resize via right-click menu

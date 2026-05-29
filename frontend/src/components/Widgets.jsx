@@ -31,6 +31,7 @@ import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import NewsFeed from './NewsFeed';
 import { LAYOUT_CHANGED } from '../lib/layouts';
+import { on as busOn } from '../lib/bus';
 
 const sbAPI = typeof window !== 'undefined' ? window.smartBrowserAPI : null;
 
@@ -123,10 +124,16 @@ function toLayoutArray(widgets) {
   return widgets.map((w) => {
     const meta = catalogFor(w.type);
     const l = w.layout || { x: 0, y: Infinity, ...meta.defaultSize };
+    // The smallest a widget can be dragged to vertically is HALF its current
+    // height (rounded down, floored at 1 cell). Because this recomputes from
+    // the live height on every render, you can keep halving a widget all the
+    // way down to a single cell — one drag at a time — which is exactly the
+    // behaviour the user asked for ("min height should be half the current").
+    const minH = Math.max(1, Math.floor((l.h || meta.defaultSize.h) / 2));
     return {
       i: w.id,
       x: l.x, y: l.y, w: l.w, h: l.h,
-      minW: meta.minSize.w, minH: meta.minSize.h,
+      minW: meta.minSize.w, minH,
     };
   });
 }
@@ -369,14 +376,12 @@ export default function Widgets({ onOpen }) {
   // Reload our state in-place so the user doesn't need to refresh the
   // page to see the applied layout.
   useEffect(() => {
-    const onChange = (e) => {
-      const next = e.detail?.widgets;
-      const nextCols = Number(e.detail?.gridCols);
+    return busOn(LAYOUT_CHANGED, (detail) => {
+      const next = detail?.widgets;
+      const nextCols = Number(detail?.gridCols);
       if (Array.isArray(next)) setWidgets(next);
       if (Number.isFinite(nextCols)) setGridColsState(nextCols);
-    };
-    window.addEventListener(LAYOUT_CHANGED, onChange);
-    return () => window.removeEventListener(LAYOUT_CHANGED, onChange);
+    });
   }, []);
 
   // When the user picks a new grid column count, the available NUMBER of

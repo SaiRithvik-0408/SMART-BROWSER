@@ -15,6 +15,18 @@
 // URLs don't survive page reloads.
 // =========================================================================
 
+import { emit, on as busOn } from './bus';
+
+// In the Electron build the background lives in the main process (served via
+// the sbbg:// protocol) so the upload — triggered from the overlay/settings
+// view — reliably reaches the home page, and the file picker is a native OS
+// dialog rather than a hidden <input> buried in a child WebContentsView. The
+// IndexedDB path below is the fallback for the plain web build.
+const nativeBg = () =>
+  (typeof window !== 'undefined' && window.smartBrowserAPI && window.smartBrowserAPI.background) || null;
+
+export function hasNativeBackground() { return !!nativeBg(); }
+
 const DB_NAME       = 'sb-background';
 const DB_VERSION    = 1;
 const STORE         = 'blobs';
@@ -69,6 +81,10 @@ async function deleteRecord() {
  * the GC clean up when the page unloads).
  */
 export async function loadBackground() {
+  const api = nativeBg();
+  if (api) {
+    try { return (await api.get()) || null; } catch { return null; }
+  }
   try {
     const rec = await getRecord();
     if (!rec || !rec.blob) return null;
@@ -79,6 +95,31 @@ export async function loadBackground() {
       url:  URL.createObjectURL(rec.blob),
     };
   } catch { return null; }
+}
+
+/**
+ * Electron-only: open a native file dialog and store the chosen image/video
+ * as the home-page background. Returns { kind, url, name, size } on success,
+ * { canceled: true } if the user dismissed the dialog, or { error } on failure.
+ */
+export async function pickBackground(kind) {
+  const api = nativeBg();
+  if (!api) throw new Error('Native background picker unavailable.');
+  const res = await api.pick(kind);
+  if (res && !res.canceled && !res.error) emit(BG_CHANGED_EVENT);
+  return res;
+}
+
+/**
+ * Subscribe to background-changed notifications from ANY source — the native
+ * main-process IPC event (cross-window) AND the in-page bus (same window /
+ * opacity tweaks). Returns an unsubscribe function.
+ */
+export function onBackgroundChanged(cb) {
+  const offBus = busOn(BG_CHANGED_EVENT, cb);
+  const api = nativeBg();
+  const offNative = api && api.onChanged ? api.onChanged(cb) : null;
+  return () => { offBus(); if (offNative) offNative(); };
 }
 
 /**
@@ -93,15 +134,15 @@ export async function saveBackground(file) {
              : null;
   if (!kind) throw new Error('Unsupported file type — pick an image or video.');
   await putRecord({ kind, blob: file, name: file.name || 'background' });
-  try {
-    window.dispatchEvent(new CustomEvent(BG_CHANGED_EVENT));
-  } catch {}
+  emit(BG_CHANGED_EVENT);
   return kind;
 }
 
 export async function clearBackground() {
+  const api = nativeBg();
+  if (api) { try { await api.clear(); } catch {} emit(BG_CHANGED_EVENT); return; }
   await deleteRecord();
-  try { window.dispatchEvent(new CustomEvent(BG_CHANGED_EVENT)); } catch {}
+  emit(BG_CHANGED_EVENT);
 }
 
 // Lightweight opacity dial — small enough to stay in localStorage so the
@@ -115,6 +156,6 @@ export function loadBackgroundOpacity() {
 export function setBackgroundOpacity(value) {
   const clamped = Math.max(0.05, Math.min(1, Number(value) || 0.45));
   try { window.localStorage.setItem(OPACITY_KEY, String(clamped)); } catch {}
-  try { window.dispatchEvent(new CustomEvent(BG_CHANGED_EVENT)); } catch {}
+  emit(BG_CHANGED_EVENT);
   return clamped;
 }

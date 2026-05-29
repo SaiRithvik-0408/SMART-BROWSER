@@ -121,7 +121,7 @@ function insertNodeIntoEditor(editor, node, savedRange) {
 
 // --- component --------------------------------------------------------------
 
-export default function NotesPanel({ open, onClose, initialNoteId }) {
+export default function NotesPanel({ open, onClose, initialNoteId, docked = false }) {
   const [notes, setNotes] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [query, setQuery] = useState('');
@@ -140,6 +140,29 @@ export default function NotesPanel({ open, onClose, initialNoteId }) {
   const draftRef        = useRef('');   // latest editor HTML pending save
 
   const active = useMemo(() => notes.find((n) => n.id === activeId) || null, [notes, activeId]);
+
+  // Keep a live ref to the active note so the editor callback-ref (which must
+  // have a STABLE identity, see attachEditor) can read it without going stale.
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  // Callback ref on the editable <div>. In the docked overlay panel the editor
+  // element can mount a tick AFTER `active` is already set, so the plain
+  // `[active?.id]` effect below sometimes fired while editorRef.current was
+  // still null and never retried — leaving the note body blank ("notes not
+  // showing the history"). Loading the HTML the moment the node attaches fixes
+  // that. Empty deps → stable identity → React only invokes this on real
+  // mount/unmount, so it never clobbers the editor mid-typing.
+  const attachEditor = React.useCallback((node) => {
+    editorRef.current = node;
+    const a = activeRef.current;
+    if (node && a && loadedNoteIdRef.current !== a.id) {
+      loadedNoteIdRef.current = a.id;
+      node.innerHTML = noteToHtml(a);
+      draftRef.current = node.innerHTML;
+      setDirty(false);
+    }
+  }, []);
 
   // --- IPC helpers --------------------------------------------------------
   const reload = async () => {
@@ -306,8 +329,10 @@ export default function NotesPanel({ open, onClose, initialNoteId }) {
   });
 
   // --- panel-level close behaviors ---------------------------------------
+  // In docked (overlay) mode the host (PanelHost) owns close-on-outside /
+  // page-focus, so we skip those here to avoid double-handling.
   useEffect(() => {
-    if (!open) return;
+    if (!open || docked) return;
     const onDown = (e) => {
       const p = paperRef.current;
       if (!p || p.contains(e.target)) return;
@@ -319,7 +344,7 @@ export default function NotesPanel({ open, onClose, initialNoteId }) {
     };
     document.addEventListener('mousedown', onDown, true);
     return () => document.removeEventListener('mousedown', onDown, true);
-  }, [open, onClose]);
+  }, [open, onClose, docked]);
 
   useEffect(() => {
     if (!open) return;
@@ -332,13 +357,13 @@ export default function NotesPanel({ open, onClose, initialNoteId }) {
   }, [open, onClose, lightboxSrc]);
 
   useEffect(() => {
-    if (!open || !api?.tab?.onPageFocus) return;
+    if (!open || docked || !api?.tab?.onPageFocus) return;
     const openedAt = Date.now();
     return api.tab.onPageFocus(() => {
       if (Date.now() - openedAt < 200) return;
       onClose?.();
     });
-  }, [open, onClose]);
+  }, [open, onClose, docked]);
 
   if (!open) return null;
 
@@ -347,7 +372,13 @@ export default function NotesPanel({ open, onClose, initialNoteId }) {
       <Paper
         ref={paperRef}
         elevation={12}
-        sx={{
+        sx={docked ? {
+          // Docked: fill the overlay view edge-to-edge (the native view is
+          // already sized + positioned as the right-side strip).
+          position: 'absolute', inset: 0,
+          display: 'flex', flexDirection: 'column',
+          borderRadius: 0, overflow: 'hidden',
+        } : {
           position: 'absolute', top: 64, zIndex: 30,
           right: { xs: 8, sm: 16 },
           left:  { xs: 8, sm: 'auto' },
@@ -451,7 +482,7 @@ export default function NotesPanel({ open, onClose, initialNoteId }) {
                   </Typography>
                 </Box>
                 <Box
-                  ref={editorRef}
+                  ref={attachEditor}
                   contentEditable
                   suppressContentEditableWarning
                   spellCheck={false}

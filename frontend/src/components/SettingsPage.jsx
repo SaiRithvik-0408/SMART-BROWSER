@@ -20,8 +20,9 @@ import {
   GRID_COL_MIN, GRID_COL_MAX, GRID_COL_PRESETS,
 } from '../lib/layouts';
 import {
-  loadBackground, saveBackground, clearBackground,
-  loadBackgroundOpacity, setBackgroundOpacity, BG_CHANGED_EVENT,
+  loadBackground, saveBackground, clearBackground, pickBackground,
+  hasNativeBackground, onBackgroundChanged,
+  loadBackgroundOpacity, setBackgroundOpacity,
 } from '../lib/background';
 import ImageIcon from '@mui/icons-material/Image';
 import VideocamIcon from '@mui/icons-material/Videocam';
@@ -61,15 +62,26 @@ function BackgroundPicker() {
   const [error, setError]   = useState('');
   const fileRef = useRef(null);
 
+  const native = hasNativeBackground();
   const refresh = async () => setBg(await loadBackground());
 
   useEffect(() => {
     refresh();
-    const onChange = () => refresh();
-    window.addEventListener(BG_CHANGED_EVENT, onChange);
-    return () => window.removeEventListener(BG_CHANGED_EVENT, onChange);
+    return onBackgroundChanged(() => refresh());
   }, []);
 
+  // Electron build: a native OS dialog (reliable from inside the overlay view).
+  // Web build: fall back to a hidden <input type=file>.
+  const pickNative = (kind) => async () => {
+    setError('');
+    setBusy(true);
+    try {
+      const res = await pickBackground(kind);
+      if (res?.error) setError(res.error);
+    } catch (err) {
+      setError(err.message || 'Failed to save background.');
+    } finally { setBusy(false); }
+  };
   const pick = (accept) => () => {
     setError('');
     if (!fileRef.current) return;
@@ -99,7 +111,7 @@ function BackgroundPicker() {
     <Stack spacing={1.5}>
       <Typography sx={{ fontSize: 12, color: '#9aa3c7' }}>
         Show a custom image or short video behind your widgets on the new-tab
-        page. Files are stored locally in IndexedDB — nothing is uploaded
+        page. Files are stored locally on this device — nothing is uploaded
         anywhere.
       </Typography>
 
@@ -135,11 +147,11 @@ function BackgroundPicker() {
 
       <Stack direction="row" spacing={1}>
         <Button size="small" variant="outlined" startIcon={<ImageIcon />}
-          onClick={pick('image/*')} disabled={busy}>
+          onClick={native ? pickNative('image') : pick('image/*')} disabled={busy}>
           {bg?.kind === 'image' ? 'Replace image' : 'Upload image'}
         </Button>
         <Button size="small" variant="outlined" startIcon={<VideocamIcon />}
-          onClick={pick('video/*')} disabled={busy}>
+          onClick={native ? pickNative('video') : pick('video/*')} disabled={busy}>
           {bg?.kind === 'video' ? 'Replace video' : 'Upload video'}
         </Button>
         <input
